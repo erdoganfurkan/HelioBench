@@ -32,10 +32,21 @@ def _build_agent(args):
     raise SystemExit(f"unknown agent {args.agent!r}")
 
 
-def _cmd_list(args) -> int:
+def _select(args):
     from heliobench.tasks import load_tasks
 
     tasks = load_tasks(args.tasks_dir, tiers=args.tier)
+    if getattr(args, "task", None):
+        wanted = set(args.task)
+        tasks = [t for t in tasks if t.id in wanted]
+        missing = wanted - {t.id for t in tasks}
+        if missing:
+            raise SystemExit(f"no such task(s): {sorted(missing)}")
+    return tasks
+
+
+def _cmd_list(args) -> int:
+    tasks = _select(args)
     if not tasks:
         print(f"no tasks found under {args.tasks_dir}")
         return 0
@@ -47,11 +58,9 @@ def _cmd_list(args) -> int:
 
 def _cmd_verify(args) -> int:
     """Check everything that would invalidate a run, before the run spends anything."""
-    from heliobench.tasks import load_tasks
-
     problems: list[str] = []
     try:
-        tasks = load_tasks(args.tasks_dir, tiers=args.tier)
+        tasks = _select(args)
         print(f"tasks         : {len(tasks)} loaded from {args.tasks_dir}")
     except Exception as e:
         print(f"tasks         : FAILED {e}")
@@ -81,9 +90,8 @@ def _cmd_verify(args) -> int:
 def _cmd_run(args) -> int:
     from heliobench import report as report_mod
     from heliobench.runner import new_run_dir, run
-    from heliobench.tasks import load_tasks
 
-    tasks = load_tasks(args.tasks_dir, tiers=args.tier)
+    tasks = _select(args)
     if not tasks:
         print("no tasks to run", file=sys.stderr)
         return 2
@@ -134,6 +142,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         choices=["n1", "n2", "n3"],
         help="restrict to a tier; repeatable (default: all)",
+    )
+    common.add_argument(
+        "--task",
+        action="append",
+        default=None,
+        metavar="ID",
+        help="restrict to these task ids; repeatable. Reproduces one failure without paying "
+        "for the whole sweep.",
     )
 
     agent_opts = argparse.ArgumentParser(add_help=False)

@@ -1,0 +1,10 @@
+{
+  "name": "heliobench",
+  "version": "0.1.0",
+  "description": "Run the HelioBench heliophysics agent benchmark and read its reports. Deterministic graders, no model in the scoring loop.",
+  "author": { "name": "Furkan Erdogan" },
+  "homepage": "https://github.com/erdoganfurkan/HelioBench",
+  "repository": "https://github.com/erdoganfurkan/HelioBench",
+  "license": "MIT",
+  "keywords": ["heliophysics", "benchmark", "evaluation", "space-physics"]
+}

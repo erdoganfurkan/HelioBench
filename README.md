@@ -43,9 +43,34 @@ v0.1 in development. Not yet released.
 ## Install
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # the harness alone — no agent, no network
 heliobench list
 ```
+
+To benchmark HelioAI, add the agent and give it credentials **explicitly**:
+
+```bash
+pip install -e ".[dev,helioai]"
+HELIOAI_LLM_PROVIDER=azure AZURE_OPENAI_API_KEY=... AZURE_OPENAI_ENDPOINT=... \
+  heliobench verify --agent helioai --index-dir /path/to/chroma
+heliobench run --agent helioai --runs 3
+```
+
+HelioBench does not inherit an agent's `.env`. HelioAI discovers one by walking up from the
+working directory, which is convenient for a clone and wrong for a benchmark: a score that
+depends on which directory it was launched from is not a score. Credentials are passed in,
+and `verify` warns when a discoverable `.env` could still inject anything left unpinned.
+
+`verify` before `run`, always. The invented-identifier check fails open — an unreachable
+search index makes fabrication look flawless — and `verify` is what catches that.
+
+A full run is 58 tasks x 3 repetitions = 174 agent runs against a paid provider. `--agent
+null` and `--task <id>` are the cheap ways to exercise the machinery.
+
+## From Claude Code
+
+Clone it, run `claude`, and use `/heliobench`. The skill runs the deterministic CLI and
+explains the report; it never decides whether an answer was right.
 
 ## Licence
 

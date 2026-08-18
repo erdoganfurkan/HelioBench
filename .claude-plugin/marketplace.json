@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "heliobench",
+  "description": "A benchmark for scientific agents in heliophysics.",
+  "owner": { "name": "Furkan Erdogan", "url": "https://github.com/erdoganfurkan" },
+  "plugins": [
+    {
+      "name": "heliobench",
+      "description": "Run the HelioBench benchmark and read its reports.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
