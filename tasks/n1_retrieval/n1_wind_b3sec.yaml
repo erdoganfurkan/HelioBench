@@ -1,0 +1,11 @@
+id: n1_wind_b3sec
+tier: n1
+event: wind
+prompt: Which product gives the Wind MFI magnetic field vector in GSM coordinates
+  at 3-second resolution? Answer with the product identifier.
+expected:
+  ids:
+  - cda/WI_H0_MFI/B3GSM
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

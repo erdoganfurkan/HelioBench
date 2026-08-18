@@ -1,0 +1,12 @@
+id: n1_ace_density
+tier: n1
+event: ace
+prompt: Which product gives the solar wind proton number density measured by ACE SWEPAM?
+  Answer with the product identifier.
+expected:
+  ids:
+  - cda/AC_H0_SWE/Np
+  - cda/AC_H2_SWE/Np
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

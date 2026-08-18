@@ -1,0 +1,16 @@
+id: n2_alfven_magnetosheath
+tier: n2
+event: magnetosheath
+prompt: What is the Alfven speed for B = 20.0 nT and proton density n = 25.0 cm^-3?
+  Give the value in km/s.
+expected:
+  value: 87.541
+  units: km/s
+  near:
+  - alfv
+  - v_a
+  - va
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.Alfven_speed via helioai.tools.plasmapy_tools.alfven_speed
+licence: internal

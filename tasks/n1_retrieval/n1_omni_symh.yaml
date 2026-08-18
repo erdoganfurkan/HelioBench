@@ -1,0 +1,11 @@
+id: n1_omni_symh
+tier: n1
+event: omni
+prompt: Which archived product provides the SYM-H geomagnetic index at 1-minute cadence?
+  Answer with the product identifier.
+expected:
+  ids:
+  - cda/OMNI_HRO_1MIN/SYM_H
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

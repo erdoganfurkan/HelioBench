@@ -1,0 +1,11 @@
+id: n1_geotail_mgf
+tier: n1
+event: geotail
+prompt: Which product gives the Geotail MGF magnetic field vector in GSE cartesian
+  coordinates from the key-parameter dataset? Answer with the product identifier.
+expected:
+  ids:
+  - cda/GE_K0_MGF/IB_vector
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

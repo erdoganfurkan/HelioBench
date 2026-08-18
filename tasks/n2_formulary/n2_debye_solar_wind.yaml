@@ -1,0 +1,15 @@
+id: n2_debye_solar_wind
+tier: n2
+event: solar_wind
+prompt: What is the Debye length for an electron density of 7.0 cm^-3 at T = 10.0
+  eV? Give the value in metres.
+expected:
+  value: 8.88526
+  units: m
+  near:
+  - debye
+  - λ
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.Debye_length via helioai.tools.plasmapy_tools.debye_length
+licence: internal

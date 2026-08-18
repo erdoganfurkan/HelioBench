@@ -1,0 +1,12 @@
+id: n1_wind_position
+tier: n1
+event: wind
+prompt: Which product gives the Wind spacecraft position in GSE coordinates? Answer
+  with the product identifier.
+expected:
+  ids:
+  - cda/WI_H0_SWE/sc_position
+  - amda/wnd_xyz_gse
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

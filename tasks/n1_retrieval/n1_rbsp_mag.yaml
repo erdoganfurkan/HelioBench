@@ -1,0 +1,11 @@
+id: n1_rbsp_mag
+tier: n1
+event: rbsp
+prompt: Which product gives the Van Allen Probe A EMFISIS 4-second magnetic field
+  in GSM coordinates? Answer with the product identifier.
+expected:
+  ids:
+  - cda/RBSP-A_MAGNETOMETER_4SEC-GSM_EMFISIS-L3/Mag
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

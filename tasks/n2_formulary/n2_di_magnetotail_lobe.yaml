@@ -1,0 +1,16 @@
+id: n2_di_magnetotail_lobe
+tier: n2
+event: magnetotail_lobe
+prompt: What is the proton inertial length for a density of 0.3 cm^-3? Give the value
+  in km.
+expected:
+  value: 415.7411
+  units: km
+  near:
+  - inertial
+  - d_i
+  - di
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.inertial_length via helioai.tools.plasmapy_tools.inertial_length
+licence: internal

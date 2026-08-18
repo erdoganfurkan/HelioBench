@@ -1,0 +1,13 @@
+id: n1_omni_bz
+tier: n1
+event: omni
+prompt: Which archived product gives the interplanetary magnetic field Bz component
+  in GSM coordinates from the OMNI 1-minute high-resolution dataset? Answer with the
+  product identifier.
+expected:
+  ids:
+  - cda/OMNI_HRO_1MIN/BZ_GSM
+  - cda/OMNI_HRO2_1MIN/BZ_GSM
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

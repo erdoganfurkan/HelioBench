@@ -1,0 +1,16 @@
+id: n2_di_magnetosheath
+tier: n2
+event: magnetosheath
+prompt: What is the proton inertial length for a density of 25.0 cm^-3? Give the value
+  in km.
+expected:
+  value: 45.5422
+  units: km
+  near:
+  - inertial
+  - d_i
+  - di
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.inertial_length via helioai.tools.plasmapy_tools.inertial_length
+licence: internal

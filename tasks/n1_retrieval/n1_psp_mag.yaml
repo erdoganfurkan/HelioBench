@@ -1,0 +1,11 @@
+id: n1_psp_mag
+tier: n1
+event: psp
+prompt: Which product gives the Parker Solar Probe FIELDS magnetic field vector in
+  RTN coordinates at full cadence? Answer with the product identifier.
+expected:
+  ids:
+  - cda/PSP_FLD_L2_MAG_RTN/psp_fld_l2_mag_RTN
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

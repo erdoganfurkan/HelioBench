@@ -1,0 +1,11 @@
+id: n1_omni_pressure
+tier: n1
+event: omni
+prompt: Which product gives the solar wind flow (dynamic) pressure in the OMNI 1-minute
+  dataset? Answer with the product identifier.
+expected:
+  ids:
+  - cda/OMNI_HRO_1MIN/Pressure
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

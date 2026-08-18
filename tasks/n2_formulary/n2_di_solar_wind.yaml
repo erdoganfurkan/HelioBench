@@ -1,0 +1,16 @@
+id: n2_di_solar_wind
+tier: n2
+event: solar_wind
+prompt: What is the proton inertial length for a density of 7.0 cm^-3? Give the value
+  in km.
+expected:
+  value: 86.0666
+  units: km
+  near:
+  - inertial
+  - d_i
+  - di
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.inertial_length via helioai.tools.plasmapy_tools.inertial_length
+licence: internal

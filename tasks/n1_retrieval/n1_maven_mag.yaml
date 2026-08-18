@@ -1,0 +1,11 @@
+id: n1_maven_mag
+tier: n1
+event: maven
+prompt: Which product gives the MAVEN magnetometer magnetic field vector at 1-second
+  cadence in sun-state coordinates? Answer with the product identifier.
+expected:
+  ids:
+  - cda/MVN_MAG_L2-SUNSTATE-1SEC/OB_B
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

@@ -1,0 +1,15 @@
+id: n2_debye_magnetotail_lobe
+tier: n2
+event: magnetotail_lobe
+prompt: What is the Debye length for an electron density of 0.3 cm^-3 at T = 300.0
+  eV? Give the value in metres.
+expected:
+  value: 235.081887
+  units: m
+  near:
+  - debye
+  - λ
+tolerance:
+  rel: 0.05
+provenance: plasmapy.formulary.Debye_length via helioai.tools.plasmapy_tools.debye_length
+licence: internal

@@ -1,0 +1,11 @@
+id: n1_ulysses_babs
+tier: n1
+event: ulysses
+prompt: Which product gives the magnetic field magnitude in the merged Ulysses hourly
+  magnetic-field-and-plasma dataset? Answer with the product identifier.
+expected:
+  ids:
+  - cda/UY_COHO1HR_MERGED_MAG_PLASMA/ABS_B
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

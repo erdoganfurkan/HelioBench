@@ -1,0 +1,13 @@
+id: n1_ace_bgsm
+tier: n1
+event: ace
+prompt: Which product gives the ACE MAG magnetic field vector in GSM coordinates?
+  Answer with the product identifier.
+expected:
+  ids:
+  - cda/AC_H0_MFI/BGSM
+  - cda/AC_H1_MFI/BGSM
+  - cda/AC_H2_MFI/BGSM
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal

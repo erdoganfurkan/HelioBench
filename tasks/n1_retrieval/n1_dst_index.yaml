@@ -1,0 +1,11 @@
+id: n1_dst_index
+tier: n1
+event: indices
+prompt: Which archived product provides the Dst geomagnetic index? Answer with the
+  product identifier.
+expected:
+  ids:
+  - amda/dst
+provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
+  time
+licence: internal
