@@ -1,0 +1,158 @@
+{
+  "datasets": {
+    "bgsm": {
+      "kind": "timeseries",
+      "file": "bgsm.npz",
+      "param_id": "cda/WI_H0_MFI/BGSM",
+      "units": "nT (1min)",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        2520,
+        3
+      ],
+      "columns": [
+        "Bx (GSM)",
+        "By (GSM)",
+        "Bz (GSM)"
+      ],
+      "missing_pct": 2.4,
+      "source": "get_timeseries",
+      "created": "1787064532"
+    },
+    "b3gsm": {
+      "kind": "timeseries",
+      "file": "b3gsm.npz",
+      "param_id": "cda/WI_H0_MFI/B3GSM",
+      "units": "nT (3sec)",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        50400,
+        3
+      ],
+      "columns": [
+        "Bx (GSM)",
+        "By (GSM)",
+        "Bz (GSM)"
+      ],
+      "missing_pct": 4.8,
+      "source": "get_timeseries",
+      "created": "1787064533"
+    },
+    "bgsm_2": {
+      "kind": "timeseries",
+      "file": "bgsm_2.npz",
+      "param_id": "cda/AC_H0_MFI/BGSM",
+      "units": "nT",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        9450,
+        3
+      ],
+      "columns": [
+        "Bx (GSM)",
+        "By (GSM)",
+        "Bz (GSM)"
+      ],
+      "missing_pct": 0.1,
+      "source": "get_timeseries",
+      "created": "1787064533"
+    },
+    "proton_np_moment": {
+      "kind": "timeseries",
+      "file": "proton_np_moment.npz",
+      "param_id": "cda/WI_H1_SWE/Proton_Np_moment",
+      "units": "cm^{-3}",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        1361,
+        1
+      ],
+      "columns": [
+        "P+ N moment"
+      ],
+      "missing_pct": 0.0,
+      "source": "get_timeseries",
+      "created": "1787064534"
+    },
+    "proton_v_moment": {
+      "kind": "timeseries",
+      "file": "proton_v_moment.npz",
+      "param_id": "cda/WI_H1_SWE/Proton_V_moment",
+      "units": "km/s",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        1361,
+        1
+      ],
+      "columns": [
+        "bulk speed moment"
+      ],
+      "missing_pct": 0.0,
+      "source": "get_timeseries",
+      "created": "1787064534"
+    },
+    "proton_w_moment": {
+      "kind": "timeseries",
+      "file": "proton_w_moment.npz",
+      "param_id": "cda/WI_H1_SWE/Proton_W_moment",
+      "units": "km/s",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        1361,
+        1
+      ],
+      "columns": [
+        "P+ W moment"
+      ],
+      "missing_pct": 0.0,
+      "source": "get_timeseries",
+      "created": "1787064534"
+    },
+    "wnd_xyz_gse": {
+      "kind": "timeseries",
+      "file": "wnd_xyz_gse.npz",
+      "param_id": "amda/wnd_xyz_gse",
+      "units": "Re",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        252,
+        3
+      ],
+      "columns": [
+        "x",
+        "y",
+        "z"
+      ],
+      "missing_pct": 0.0,
+      "source": "get_timeseries",
+      "created": "1787064543"
+    },
+    "ace_xyz_gse": {
+      "kind": "timeseries",
+      "file": "ace_xyz_gse.npz",
+      "param_id": "amda/ace_xyz_gse",
+      "units": "Re",
+      "start": "2015-03-16T18:00:00",
+      "stop": "2015-03-18T12:00:00",
+      "shape": [
+        210,
+        3
+      ],
+      "columns": [
+        "x",
+        "y",
+        "z"
+      ],
+      "missing_pct": 0.0,
+      "source": "get_timeseries",
+      "created": "1787064549"
+    }
+  }
+}

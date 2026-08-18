@@ -123,3 +123,47 @@ def test_a_computed_number_reaches_the_provenance_ledger(tmp_path, monkeypatch):
     assert "beta" in names, f"ledger empty; artifacts={trace.artifacts}"
     assert names["beta"]["mean"] == pytest.approx(2.52)
     assert trace.tokens.calls == 2, "both LLM turns must be counted, not just the last"
+
+
+def test_a_seeded_fixture_is_served_without_the_network(tmp_path):
+    """The offline story, end to end: no request interception anywhere, just a manifest that
+    `get_timeseries` consults before it reaches for the archive."""
+    import asyncio as _asyncio
+    from pathlib import Path as _Path
+
+    fixture = _Path("fixtures/stpatrick_2015")
+    if not (fixture / "data" / "manifest.json").is_file():
+        pytest.skip("fixture not built; run scripts/build_fixture.py")
+
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    agent._load()
+    agent.seed(tmp_path / "bench_offline", fixture, "sess-offline")
+
+    import helioai.workspace as ws
+    from helioai.tools.speasy_tools import get_timeseries
+
+    ws.set_user("heliobench")
+    ws.set_session("sess-offline")
+    ws.set_label("bench_offline")
+
+    res = _asyncio.run(
+        get_timeseries(
+            param_id="cda/WI_H0_MFI/BGSM",
+            start="2015-03-16T18:00:00",
+            stop="2015-03-18T12:00:00",
+        )
+    )
+    assert res.get("already_downloaded") is True, res
+    assert res.get("dataset") == "bgsm"
+
+    # And the exact-string cache key, which is why the prompts quote the interval verbatim.
+    miss = _asyncio.run(
+        get_timeseries(
+            param_id="cda/WI_H0_MFI/BGSM", start="2015-03-16T18:00", stop="2015-03-18T12:00:00"
+        )
+    )
+    assert not miss.get("already_downloaded"), "a reformatted timestamp must miss the cache"
+
+    from helioai.core.session import store
+
+    store.reset("heliobench", "sess-offline")
