@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+# Raw traces of a run: large, machine-specific, and regenerable. The *reports* under
+# results/ are committed on purpose — they are the audit trail.
+results/**/traces/

@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+title: "HelioBench: a benchmark for scientific agents in heliophysics"
+message: "If you use this benchmark, please cite it."
+type: software
+authors:
+  - family-names: Erdogan
+    given-names: Furkan
+repository-code: "https://github.com/erdoganfurkan/HelioBench"
+license: MIT
+version: 0.1.0.dev0

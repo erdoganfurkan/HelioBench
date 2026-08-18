@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "heliobench"
+dynamic = ["version"]
+description = "A benchmark for scientific agents in heliophysics: parameter retrieval, plasma formulary, and method-specified analysis on real spacecraft data."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "Furkan Erdogan" }]
+keywords = ["heliophysics", "benchmark", "llm-agents", "space-physics", "evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+# Deliberately tiny. The graders are arithmetic and string comparison; the statistics are
+# bootstrap resampling. Neither needs a framework, and every dependency here is one more
+# thing that can differ between the machine that publishes a number and the machine that
+# checks it.
+dependencies = [
+    "pyyaml>=6.0",
+    "numpy>=2.1",
+]
+
+[project.optional-dependencies]
+# The agent under test is an extra, not a dependency: the harness must install and run
+# without any agent present, or it cannot claim to be agent-neutral.
+helioai = ["helioai-agent>=0.2.1"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+heliobench = "heliobench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/erdoganfurkan/HelioBench"
+Issues = "https://github.com/erdoganfurkan/HelioBench/issues"
+
+[tool.hatch.version]
+path = "heliobench/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["heliobench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pinned explicitly rather than inherited: a ruff release that widens the defaults must not
+# be able to break CI on a repo whose whole point is producing stable numbers.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
