@@ -53,6 +53,16 @@ def test_the_launcher_is_executable_and_finds_the_repo_from_anywhere():
     assert "task(s)" in out.stdout, "the script must resolve the repo, not trust cwd"
 
 
+def test_the_plugin_declares_no_version_so_the_commit_is_the_cache_key():
+    # Claude Code keys its plugin cache on the declared version and falls back to the git
+    # commit when there is none. Declaring one means every skill edit needs a manual bump,
+    # which will be forgotten, and the user silently keeps running a stale copy.
+    plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
+    assert "version" not in plugin
+    market = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
+    assert "version" not in market["plugins"][0]
+
+
 def test_the_plugin_manifests_parse_and_name_themselves_consistently():
     plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
     market = json.loads((REPO / ".claude-plugin/marketplace.json").read_text())
