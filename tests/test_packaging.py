@@ -206,3 +206,39 @@ def test_an_explicit_interpreter_overrides_everything(tmp_path):
     )
     assert out.returncode == 0, out.stderr
     assert "no tasks found" in out.stdout
+
+
+def test_a_borrowed_interpreter_still_runs_the_snapshots_own_code(tmp_path):
+    """The property the whole plugin story rests on.
+
+    A plugin copy has tasks and a package but no usable virtualenv. Lending it an interpreter
+    from elsewhere must not lend it that environment's *code* as well, or the run would score
+    the snapshot's questions with another commit's graders and label the result with the
+    snapshot's version. `python -m` puts the working directory first on sys.path, and the
+    launcher's `cd` makes that the snapshot — so the borrowed interpreter contributes only its
+    dependencies.
+    """
+    snapshot = tmp_path / "snapshot"
+    (snapshot / "heliobench").mkdir(parents=True)
+    (snapshot / "heliobench" / "__init__.py").write_text('__version__ = "9.9.9-snapshot"\n')
+    (snapshot / "heliobench" / "cli.py").write_text(
+        "import heliobench\n"
+        "def main(argv=None):\n"
+        "    print(heliobench.__version__, heliobench.__file__)\n"
+        "    return 0\n"
+        "if __name__ == '__main__':\n"
+        "    raise SystemExit(main())\n"
+    )
+    launcher = _fake_plugin_copy(snapshot)
+
+    out = subprocess.run(
+        ["bash", str(launcher), "list"],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "HELIOBENCH_PYTHON": sys.executable},
+    )
+    assert out.returncode == 0, out.stderr
+    assert "9.9.9-snapshot" in out.stdout, "the installed package shadowed the snapshot's"
+    assert str(snapshot) in out.stdout

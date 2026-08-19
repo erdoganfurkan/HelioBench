@@ -69,8 +69,27 @@ null` and `--task <id>` are the cheap ways to exercise the machinery.
 
 ## From Claude Code
 
-Clone it, run `claude`, and use `/heliobench`. The skill runs the deterministic CLI and
-explains the report; it never decides whether an answer was right.
+Clone it, run `claude` from the repository, and use `/heliobench`. The skill runs the
+deterministic CLI and explains the report; it never decides whether an answer was right, and
+it is pinned to Sonnet because reading a report does not need a larger model.
+
+To reach it from any other project, install it as a plugin:
+
+```bash
+claude plugin marketplace add /path/to/HelioBench
+claude plugin install heliobench@heliobench
+export HELIOBENCH_PYTHON=/path/to/HelioBench/.venv/bin/python   # or pip install heliobench
+```
+
+An installed plugin is a **snapshot of one commit** — its tasks, its graders and its fixtures
+all come from there, which is what makes a score attributable. The interpreter is the one
+thing it borrows, and it borrows only the dependencies: the snapshot's own package still wins
+on `sys.path`. Reports are written to the directory you invoked it from, never into the plugin
+cache, which is erased on every reinstall.
+
+Installing from a local path copies the whole working tree, `.venv` included — around 100 MB
+per snapshot, and a new one per commit since the plugin is versioned by commit. Installing
+from the GitHub source instead clones it, and does not.
 
 ## Licence
 
