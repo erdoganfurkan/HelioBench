@@ -159,3 +159,50 @@ def test_an_explicit_out_still_wins(tmp_path):
     )
     assert out.returncode == 0, out.stderr
     assert (tmp_path / "mine").is_dir()
+
+
+def _fake_plugin_copy(root: Path) -> Path:
+    """A tree shaped like an installed plugin: the tasks and the launcher, and a `.venv` whose
+    interpreter symlink no longer resolves — which is what a copied virtualenv looks like."""
+    skill = root / ".claude/skills/heliobench/scripts"
+    skill.mkdir(parents=True)
+    (skill / "heliobench.sh").write_bytes(SCRIPT.read_bytes())
+    (skill / "heliobench.sh").chmod(0o755)
+    venv_bin = root / ".venv/bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(root / "nowhere/python")
+    (venv_bin / "heliobench").write_text("#!/does/not/exist\n")
+    (venv_bin / "heliobench").chmod(0o755)
+    return skill / "heliobench.sh"
+
+
+def test_a_copied_virtualenv_is_refused_instead_of_silently_running_another_repo(tmp_path):
+    # Installing from a local path copies `.venv` too, and the copied console scripts keep an
+    # absolute shebang pointing back at the original repo. Trusting them would run the live
+    # repo's code against the snapshot's tasks and report it as the snapshot's commit.
+    launcher = _fake_plugin_copy(tmp_path / "plugin")
+    out = subprocess.run(
+        ["bash", str(launcher), "list"],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PATH": "/usr/bin:/bin"},
+    )
+    assert out.returncode == 127
+    assert "HELIOBENCH_PYTHON" in out.stderr
+
+
+def test_an_explicit_interpreter_overrides_everything(tmp_path):
+    launcher = _fake_plugin_copy(tmp_path / "plugin2")
+    (tmp_path / "plugin2" / "tasks").mkdir()
+    out = subprocess.run(
+        ["bash", str(launcher), "list"],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "HELIOBENCH_PYTHON": sys.executable},
+    )
+    assert out.returncode == 0, out.stderr
+    assert "no tasks found" in out.stdout
