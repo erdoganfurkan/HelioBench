@@ -3,11 +3,18 @@ name: heliobench
 description: Run the HelioBench benchmark against a heliophysics agent and explain the results. Use when asked to benchmark an agent, score HelioAI, compare two agents or two versions, check for a regression, or read an existing benchmark report.
 argument-hint: "[verify|run|report] [--agent helioai|null] [--tier n1|n2|n3]"
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/heliobench.sh *), Read, Glob, Grep
+model: sonnet
 ---
 
 # HelioBench
 
 You are running a benchmark, not judging one.
+
+This skill is pinned to Sonnet. The work is launching a script and reading the markdown it
+produced — the judgement lives in `heliobench/graders/`, not in whoever is reading the
+report — so there is nothing here that needs a larger model, and a long sweep should not be
+expensive to supervise. (`model:` is a Claude Code extension; a copy of this skill uploaded
+elsewhere will ignore it, which costs nothing but the pin.)
 
 ## The one rule
 

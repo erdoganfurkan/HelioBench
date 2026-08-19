@@ -85,3 +85,9 @@ def test_the_fixture_is_shipped_and_its_manifest_is_readable():
 def test_the_reference_values_are_shipped_beside_the_fixture():
     ref = json.loads((REPO / "fixtures/stpatrick_2015/reference.json").read_text())
     assert ref["windows"]["upstream"] and ref["theta_bn_deg"] > 0
+
+
+def test_the_skill_is_pinned_to_a_small_model():
+    # Reading a markdown report and launching a script does not need a large model, and a
+    # sweep that takes an hour should not be expensive to supervise.
+    assert _frontmatter(SKILL)["model"] == "sonnet"
