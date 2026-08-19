@@ -55,7 +55,7 @@ class HelioAIAgent:
         self,
         data_dir: Path,
         *,
-        provider: str = "groq",
+        provider: str = "azure",
         model: str | None = None,
         index_dir: Path | None = None,
         restricted: bool = True,
