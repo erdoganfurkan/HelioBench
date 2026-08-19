@@ -91,3 +91,12 @@ def test_the_skill_is_pinned_to_a_small_model():
     # Reading a markdown report and launching a script does not need a large model, and a
     # sweep that takes an hour should not be expensive to supervise.
     assert _frontmatter(SKILL)["model"] == "sonnet"
+
+
+def test_the_plugin_points_at_the_one_copy_of_the_skill():
+    # A plugin scans `skills/` by default, but the skill lives under `.claude/skills/` so it
+    # also loads as a project skill inside this repo. Pointing the manifest at that directory
+    # is what keeps one file instead of two copies that drift apart.
+    plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
+    assert plugin["skills"] == ["./.claude/skills"]
+    assert (REPO / plugin["skills"][0].removeprefix("./") / "heliobench" / "SKILL.md").is_file()
