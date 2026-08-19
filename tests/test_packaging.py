@@ -110,3 +110,52 @@ def test_the_plugin_points_at_the_one_copy_of_the_skill():
     plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text())
     assert plugin["skills"] == ["./.claude/skills"]
     assert (REPO / plugin["skills"][0].removeprefix("./") / "heliobench" / "SKILL.md").is_file()
+
+
+def test_a_run_writes_its_results_where_it_was_invoked_not_beside_the_tasks():
+    # An installed plugin's copy is erased on reinstall. A report written beside the tasks is
+    # a report the user loses the first time they update.
+    out = subprocess.run(
+        [
+            "bash",
+            "-x",
+            str(SCRIPT),
+            "run",
+            "--agent",
+            "null",
+            "--task",
+            "n2_beta_solar_wind",
+            "--runs",
+            "1",
+        ],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, out.stderr
+    assert "/tmp/heliobench-results" in out.stderr + out.stdout
+
+
+def test_an_explicit_out_still_wins(tmp_path):
+    out = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "run",
+            "--agent",
+            "null",
+            "--task",
+            "n2_beta_solar_wind",
+            "--runs",
+            "1",
+            "--out",
+            str(tmp_path / "mine"),
+        ],
+        cwd="/tmp",
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, out.stderr
+    assert (tmp_path / "mine").is_dir()
