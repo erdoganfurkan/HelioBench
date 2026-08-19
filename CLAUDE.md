@@ -24,6 +24,14 @@ Always `verify` before `run` — the search-index check fails open, so a missing
 like a flawless score. And a real run spends the user's API quota: 58 tasks × 3 repetitions
 is 174 agent runs. Agree on that before starting one.
 
+## Working on this repo
+
+`dev/lessons.md` is a ledger of past mistakes and the rule that closed each one — read it
+before a non-trivial change, and append to it after any fix that wasn't obvious in advance.
+`dev/todo.md` tracks what's in flight; `docs/roadmap-paper.md` has the longer-range reasoning.
+(Don't confuse `dev/` with `tasks/` — the latter holds the benchmark's own task YAMLs, and
+editing one of those changes `task_set_digest`, not a lesson learned.)
+
 ## Ground rules for changing the benchmark
 
 - **A task's answer key is measured, never remembered.** `scripts/build_fixture.py` freezes
