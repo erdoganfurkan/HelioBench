@@ -83,6 +83,26 @@ def _recording_tool_output(trace: Trace, t0: float):
         registry.call_tool = original
 
 
+def low_disk(where: Path, need_gb: float = 2.0) -> str | None:
+    """Complain when the agent has too little room to write, or None when it has enough.
+
+    A sweep that fills the disk dies mid-flight with the quota already spent, and it does not
+    die saying "disk": it surfaces as a sqlite error inside the agent loop, several frames
+    from anything about storage. HelioAI seeds each session's workspace from the speasy
+    inventory — measured at ~37 MB for a session that loads data and a few kilobytes for one
+    that does not — so a full sweep needs room for a workspace per run, over a gigabyte.
+    """
+    where = Path(where)
+    probe = where if where.exists() else where.parent
+    free_gb = shutil.disk_usage(probe).free / 1e9
+    if free_gb >= need_gb:
+        return None
+    return (
+        f"{free_gb:.1f} GB free where the agent writes ({where}) — a sweep seeds a workspace "
+        f"per run and needs more than {need_gb:.0f} GB"
+    )
+
+
 def _discoverable_dotenv(start: Path) -> Path | None:
     """The `.env` HelioAI's own discovery would find walking up from `start`."""
     for d in [start, *start.parents]:
@@ -186,6 +206,10 @@ class HelioAIAgent:
             problems.append("the Chroma index is unreachable — invented ids would score as valid")
         elif n == 0:
             problems.append("the Chroma index is empty — invented ids would score as valid")
+
+        low = low_disk(self.data_dir)
+        if low:
+            problems.append(low)
 
         env_file = _discoverable_dotenv(Path.cwd())
         if env_file is not None:

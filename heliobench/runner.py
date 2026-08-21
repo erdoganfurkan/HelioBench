@@ -122,5 +122,64 @@ def run(
     return {"meta": meta, "records": records}
 
 
+def regrade(run_dir: Path, tasks: list[Task]) -> dict:
+    """Re-derive every record in a run directory from its stored traces.
+
+    A grader reads a trace and nothing else, so a finished run can be scored again after a
+    key was widened, a tolerance tightened or a gate added — no provider, no money, no agent.
+    That this is code rather than a hand tally is the point: the correction of 2026-08-21
+    began as a manual count across two run directories, and a number counted by hand is a
+    number nobody can reproduce.
+
+    Traces for tasks no longer in the set are skipped, and the rebuilt meta says how many
+    were kept: a re-grade against a different task set is a different measurement, and the
+    digest it writes is what says so.
+    """
+    run_dir = Path(run_dir)
+    by_id = {t.id: t for t in tasks}
+    records: list[dict] = []
+    skipped: list[str] = []
+
+    for path in sorted((run_dir / "traces").glob("*.json")):
+        trace = Trace.read(path)
+        task = by_id.get(trace.task_id)
+        if task is None:
+            skipped.append(trace.task_id)
+            continue
+        result = grade(task, trace)
+        records.append(
+            {
+                "task_id": task.id,
+                "tier": task.tier,
+                "event": task.event,
+                "run": int(path.stem.rsplit(".", 1)[-1]),
+                "passed": result.passed,
+                "reason": result.reason,
+                "detail": result.detail,
+                "metrics": collect(trace).as_dict(),
+            }
+        )
+
+    seen = {r["task_id"] for r in records}
+    meta_path = run_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    first = Trace.read(sorted((run_dir / "traces").glob("*.json"))[0]) if records else None
+    meta.update(
+        {
+            "heliobench": __version__,
+            "regraded": datetime.now(UTC).isoformat(timespec="seconds"),
+            "runs": max((r["run"] for r in records), default=0) + 1,
+            "n_tasks": len(seen),
+            "task_set_digest": task_set_digest([by_id[t] for t in sorted(seen)]),
+            "skipped_traces": sorted(set(skipped)),
+        }
+    )
+    meta.setdefault("agent", first.env if first else {})
+    meta.setdefault("generated", meta["regraded"])
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    (run_dir / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    return {"meta": meta, "records": records}
+
+
 def load_task_set(tasks_dir: str | Path, tiers: list[str] | None) -> list[Task]:
     return load_tasks(tasks_dir, tiers=tiers)

@@ -41,3 +41,32 @@ provenance ledger, and the contradiction was printed in a table under the score.
 takes the score. | A process signal that cannot fail a run is decoration. Contradiction is a
 gate in `graders/__init__.py`; the softer signals stay beside the score, and the difference
 is deliberate.
+
+`2026-08-21` | Launched a 90-run sweep without looking at free disk space. It died at run 69
+with the quota already spent, and the error was a sqlite failure inside HelioAI's agent loop
+— nothing in it said "disk". The space had been eaten by leftovers from earlier runs: each
+tier-n3 session workspace is seeded with a ~37 MB copy of the speasy inventory, and 36 of
+them sat in `/tmp` from the previous sweep. | `verify` now fails under 2 GB free where the
+agent writes. Check what a sweep leaves in `$TMPDIR` after it finishes, and read the whole
+preflight before spending money — the check exists because the failure is silent, expensive
+and hours from where it is felt.
+
+`2026-08-21` | Recovering those 69 runs meant grading stored traces against corrected keys,
+which had already been done by hand twice that day. | `heliobench report --regrade` does it
+in code. A benchmark whose numbers are recomputed by hand publishes numbers nobody can
+reproduce, including the person who counted them.
+
+`2026-08-21` | The corrected n1 sweep still failed `n1_mms_fgm` 3/3 with the same two invented
+ids, although HelioAI's detect-and-retry fix had been written that morning. The fix is in
+HelioAI's working tree; the harness runs the snapshot installed in its own virtualenv, which
+predates it. The run log says which: `lead_invented_ids` against the fixed
+`lead_invented_ids_retry`. | An agent fix is not measured until it is installed. Before
+reading a re-run as evidence that a fix worked, check the code the harness actually imported
+— the report header pins the version, and a version number does not move for an unreleased
+fix.
+
+`2026-08-21` | A fourth defective key surfaced only after the rank metric existed: the two
+failures whose accepted id was never returned looked exactly like the ones where it was
+returned and passed over. | Attribution before diagnosis. A pass rate cannot say whether a
+retrieval tier failed at retrieval or at selection, and every fix for one is a waste of time
+on the other.

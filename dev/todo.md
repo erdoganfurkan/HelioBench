@@ -15,7 +15,7 @@ the reasoning behind each item below; this file is just the trackable slice of i
       exactness possible
 - [x] Trim n2 to 5 regression guards — 16/16, `pass^3` 100%, 1.0 tool call/run: it is
       saturated and discriminates nothing, at 512k tokens a sweep
-- [ ] Re-run n1 whole in one shot under the corrected keys (~1.1M tokens, fits the 2M/day
+- [x] Re-run n1 whole under the corrected keys (~1.1M tokens, fits the 2M/day
       Azure quota) for a bootstrapped figure instead of a hand tally
 - [ ] v0.1 release (not yet released — see `CHANGELOG.md` `[Unreleased]`)
 

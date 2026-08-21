@@ -124,8 +124,13 @@ def _cmd_run(args) -> int:
 
 def _cmd_report(args) -> int:
     from heliobench import report as report_mod
+    from heliobench.runner import regrade
 
-    path = report_mod.write(Path(args.run_dir))
+    run_dir = Path(args.run_dir)
+    if args.regrade:
+        out = regrade(run_dir, _select(args))
+        print(f"re-graded {len(out['records'])} runs over {out['meta']['n_tasks']} tasks")
+    path = report_mod.write(run_dir)
     print(path.read_text(encoding="utf-8"))
     return 0
 
@@ -178,8 +183,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--force", action="store_true", help="run despite preflight problems")
     run_p.set_defaults(func=_cmd_run)
 
-    rep = sub.add_parser("report", help="rebuild a report from stored traces")
+    rep = sub.add_parser("report", parents=[common], help="rebuild a report from stored traces")
     rep.add_argument("run_dir", help="directory of a previous run")
+    rep.add_argument(
+        "--regrade",
+        action="store_true",
+        help="score the stored traces again with today's graders and task set, then report. "
+        "Costs nothing: graders read traces, never the agent.",
+    )
     rep.set_defaults(func=_cmd_report)
 
     return p

@@ -2,7 +2,7 @@ import json
 
 from heliobench import report
 from heliobench.adapters.null import NullAgent
-from heliobench.runner import run, task_set_digest
+from heliobench.runner import regrade, run, task_set_digest
 from heliobench.stats import cluster_bootstrap_ci, mcnemar, summarise
 from heliobench.tasks import Task, load_tasks
 
@@ -110,3 +110,51 @@ def test_the_report_grades_retrieval_by_rank_when_the_tool_output_was_kept():
 def test_runs_recorded_before_tool_output_was_kept_are_left_out_of_the_rank():
     md = report.build({"runs": 1}, [_n1_record(None, searched=False)])
     assert "## Retrieval (n1)" not in md
+
+
+def test_regrading_a_stored_run_follows_a_corrected_answer_key(tmp_path):
+    # The property the whole re-grade exists for: a key that was wrong when the run happened
+    # gives a different verdict afterwards, from the stored trace alone and without an agent.
+    from heliobench.trace import Trace
+
+    task = Task(
+        id="n1_x", tier="n1", prompt="p", expected={"ids": ["cda/A_B/RIGHT"]}, provenance="v"
+    )
+    out = tmp_path / "run"
+    (out / "traces").mkdir(parents=True)
+    Trace(task_id="n1_x", prompt="p", agent="a", reply="The product is cda/A_B/DEFENSIBLE.").write(
+        out / "traces" / "n1_x.0.json"
+    )
+
+    assert regrade(out, [task])["records"][0]["passed"] is False
+
+    widened = Task(
+        id="n1_x",
+        tier="n1",
+        prompt="p",
+        expected={"ids": ["cda/A_B/RIGHT", "cda/A_B/DEFENSIBLE"]},
+        provenance="v",
+    )
+    after = regrade(out, [widened])
+    assert after["records"][0]["passed"] is True
+    assert after["meta"]["task_set_digest"] == task_set_digest([widened])
+
+
+def test_regrading_skips_traces_whose_task_left_the_set(tmp_path):
+    from heliobench.trace import Trace
+
+    out = tmp_path / "run"
+    (out / "traces").mkdir(parents=True)
+    Trace(task_id="n1_gone", prompt="p", agent="a", reply="x").write(
+        out / "traces" / "n1_gone.0.json"
+    )
+    kept = Task(
+        id="n1_here", tier="n1", prompt="p", expected={"ids": ["cda/A_B/Q"]}, provenance="v"
+    )
+    Trace(task_id="n1_here", prompt="p", agent="a", reply="cda/A_B/Q").write(
+        out / "traces" / "n1_here.0.json"
+    )
+
+    result = regrade(out, [kept])
+    assert [r["task_id"] for r in result["records"]] == ["n1_here"]
+    assert result["meta"]["skipped_traces"] == ["n1_gone"]

@@ -20,6 +20,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on 1.0 tool calls per run — saturated, and 512k tokens a sweep.
 
 ### Fixed
+- `verify` refuses a machine with under 2 GB free where the agent writes. A sweep that fills
+  the disk dies with the quota already spent, and it surfaces as a sqlite error inside the
+  agent loop rather than as anything mentioning storage — which is exactly what happened on
+  2026-08-21, 69 runs into a 90-run sweep.
+- A fourth defective key: `n1_dst_index` accepted only `amda/dst` while 24 MMS MEC
+  ephemeris products carry the same index as a model input. The prompt now asks for the
+  index rather than a copy of it, and the key accepts `amda/omni_dst` too.
 - Three tier-n1 answer keys rejected identifiers the search index describes in the words of
   their own prompt. `n1_wind_position` accepts all 15 Wind GSE position products;
   `n1_amda_imf` and `n1_themis_fgm` now name the dataset that separates their look-alikes.
@@ -27,6 +34,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   correction appended to `results/summary_2026-08-21.md`.
 
 ### Added
+- `heliobench report --regrade <run>`: score stored traces again with today's graders and
+  task set. Costs nothing — graders read traces, never the agent — and it is how a corrected
+  key, a tightened tolerance or a new gate reaches a run that already happened.
 - `scripts/n1_key_candidates.py`: enumerate an n1 key out of the search index by regex, so
   the accepted identifiers are measured rather than recalled.
 - The rule that closes the above, in `docs/what-this-measures.md`: a task is defective when a

@@ -4,7 +4,12 @@ import asyncio
 
 import pytest
 
-from heliobench.adapters.helioai import HelioAIAgent, _discoverable_dotenv
+from heliobench.adapters.helioai import (
+    HelioAIAgent,
+    _discoverable_dotenv,
+    _recording_tool_output,
+    low_disk,
+)
 
 helioai = pytest.importorskip("helioai", reason="agent extra not installed")
 
@@ -167,3 +172,36 @@ def test_a_seeded_fixture_is_served_without_the_network(tmp_path):
     from helioai.core.session import store
 
     store.reset("heliobench", "sess-offline")
+
+
+def test_a_disk_too_small_for_the_sweep_is_a_preflight_problem(tmp_path, monkeypatch):
+    # The failure this catches costs a whole sweep: the disk fills, the quota is already
+    # spent, and what surfaces is a sqlite error inside the agent loop.
+    import shutil as _shutil
+
+    assert low_disk(tmp_path) is None
+    monkeypatch.setattr(
+        _shutil, "disk_usage", lambda p: _shutil._ntuple_diskusage(100, 99, int(0.4e9))
+    )
+    problem = low_disk(tmp_path)
+    assert problem and "0.4 GB free" in problem
+
+
+def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
+    # The seam the rank metric rests on: what the model was shown, recorded verbatim, with
+    # the registry left exactly as it was found.
+    from helioai.tools.registry import registry
+
+    from heliobench.trace import Trace
+
+    original = registry.call_tool
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    with _recording_tool_output(trace, 0.0):
+        assert registry.call_tool is not original
+        out = asyncio.run(registry.call_tool("no_such_tool", {"query": "x"}))
+
+    assert registry.call_tool is original
+    (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
+    assert ev["data"]["name"] == "no_such_tool"
+    assert ev["data"]["result"] == out and "unknown tool" in out
+    assert ev["data"]["truncated"] is False

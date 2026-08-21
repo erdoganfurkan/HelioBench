@@ -1,11 +1,16 @@
 id: n1_dst_index
 tier: n1
 event: indices
-prompt: Which archived product provides the Dst geomagnetic index? Answer with the
-  product identifier.
+prompt: Which archived product provides the hourly Dst geomagnetic index itself, rather than
+  a copy of it carried inside a spacecraft's magnetic-ephemeris dataset as a model input?
+  Answer with the product identifier.
 expected:
   ids:
   - amda/dst
-provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
-  time
+  - amda/omni_dst
+provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
+  by `scripts/n1_key_candidates.py '(^amda/|/)[a-z0-9_]*dst' 'index'`, not recalled; 27 entries
+  carry a Dst value and 24 of them are the same index copied into an MMS MEC ephemeris dataset
+  ("Dst index from QinDenton files, used as input to magnetic field models"), so the prompt
+  separates the published index from a model input
 licence: internal
