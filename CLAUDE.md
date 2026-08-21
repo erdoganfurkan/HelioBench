@@ -35,8 +35,12 @@ editing one of those changes `task_set_digest`, not a lesson learned.)
 ## Ground rules for changing the benchmark
 
 - **A task's answer key is measured, never remembered.** `scripts/build_fixture.py` freezes
-  the data; `scripts/reference_values.py` derives the truth from the frozen bytes. Adding a
-  task means running those, not typing a number.
+  the data; `scripts/reference_values.py` derives the truth from the frozen bytes;
+  `scripts/n1_key_candidates.py` enumerates the accepted identifiers out of the search index.
+  Adding a task means running those, not typing a number.
+- **A task is defective when a defensible answer exists that its key rejects.** Widen the key
+  or harden the prompt — `docs/what-this-measures.md` says which, and why hardening leaves the
+  old runs unscored rather than re-scored.
 - **Every task declares its `provenance` and `licence`.** No third-party catalogue is
   redistributed here without an open licence.
 - **Editing a prompt changes `task_set_digest`**, and scores across different digests are not

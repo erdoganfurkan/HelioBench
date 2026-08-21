@@ -1,12 +1,27 @@
 id: n1_wind_position
 tier: n1
 event: wind
-prompt: Which product gives the Wind spacecraft position in GSE coordinates? Answer
-  with the product identifier.
+prompt: Which product gives the Wind spacecraft position in GSE coordinates? Answer with the
+  product identifier.
 expected:
   ids:
   - cda/WI_H0_SWE/sc_position
+  - cda/WI_H0_MFI/PGSE
+  - cda/WI_H0_MFI/P1GSE
+  - cda/WI_H0_MFI/PGSEV
+  - cda/WI_H0_MFI/P1GSEV
+  - cda/WI_K0_MFI/PGSE
+  - cda/WI_K0_MFI/PGSEV
+  - cda/WI_K1-RTN_MFI/PGSE
+  - cda/WI_K0_SWE/SC_pos_gse
+  - cda/WI_K0_SWE_RTN/SC_pos_gse
+  - cda/WI_K0_3DP/sc_position
+  - cda/WI_OR_DEF/GSE_POS
+  - cda/WI_OR_PRE/GSE_POS
+  - cda/WI_OR_PRE/GSE_POS_t
   - amda/wnd_xyz_gse
-provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
-  time
+provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
+  by `scripts/n1_key_candidates.py '^(cda/WI_|amda/wnd)' 'position' 'gse'`, not recalled;
+  every entry naming the Wind spacecraft position vector in GSE is accepted, at any cadence
+  and from any dataset — single components, radial distance and the Moon ephemeris are not
 licence: internal

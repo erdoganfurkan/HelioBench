@@ -6,7 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Three tier-n1 answer keys rejected identifiers the search index describes in the words of
+  their own prompt. `n1_wind_position` accepts all 15 Wind GSE position products;
+  `n1_amda_imf` and `n1_themis_fgm` now name the dataset that separates their look-alikes.
+  This changes `task_set_digest`, so scores from before it do not compare — see the
+  correction appended to `results/summary_2026-08-21.md`.
+
 ### Added
+- `scripts/n1_key_candidates.py`: enumerate an n1 key out of the search index by regex, so
+  the accepted identifiers are measured rather than recalled.
+- The rule that closes the above, in `docs/what-this-measures.md`: a task is defective when a
+  defensible answer exists that its key rejects.
 - 58 tasks over 12 events: 30 retrieval, 16 formulary, 12 method-specified analysis, with a
   suite that audits every one of them for solvability.
 - Deterministic graders, cluster-bootstrap intervals, `pass^k`, paired McNemar, and a report

@@ -1,12 +1,21 @@
 id: n1_themis_fgm
 tier: n1
 event: themis
-prompt: Which product gives the THEMIS-A fluxgate magnetometer field vector in GSM
-  coordinates? Answer with the product identifier.
+prompt: Which product gives the THEMIS-A fluxgate magnetometer field vector in GSM coordinates,
+  from the L2 FGM dataset rather than the on-board spin-fit (FIT) dataset? Answer with the
+  product identifier.
 expected:
   ids:
   - cda/THA_L2_FGM/tha_fgs_gsm
+  - cda/THA_L2_FGM/tha_fgs_gsmQ
   - cda/THA_L2_FGM/tha_fgl_gsm
-provenance: speasy inventory as indexed by helioai; every id verified present at task-authoring
-  time
+  - cda/THA_L2_FGM/tha_fgl_gsmQ
+  - cda/THA_L2_FGM/tha_fgh_gsm
+  - cda/THA_L2_FGM/tha_fgh_gsmQ
+  - cda/THA_L2_FGM/tha_fge_gsm
+  - cda/THA_L2_FGM/tha_fge_gsmQ
+provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
+  by `scripts/n1_key_candidates.py '^cda/THA_L2_FGM/' 'gsm'`, not recalled; the prompt pins
+  the dataset because THA_L2_FIT also carries a spin-fit FGM vector in GSM, and every telemetry
+  mode within THA_L2_FGM is accepted
 licence: internal
