@@ -2,16 +2,15 @@ id: n3_mach_alfven
 tier: n3
 event: stpatrick_2015
 fixture: stpatrick_2015
-prompt: 'The interplanetary shock of 17 March 2015 (St Patrick''s Day storm) is already
-  downloaded into this session''s workspace; load it with load_data() rather than
-  downloading again. Wind MFI 1-minute field in GSM is the dataset saved from cda/WI_H0_MFI/BGSM,
-  and the Wind SWE proton moments are those saved from cda/WI_H1_SWE/Proton_Np_moment,
-  cda/WI_H1_SWE/Proton_V_moment and cda/WI_H1_SWE/Proton_W_moment. All of it covers
-  2015-03-16T18:00:00 to 2015-03-18T12:00:00; if you fetch anything, use exactly that
-  interval. Use exactly these averaging windows: upstream 2015-03-17T03:35:59 to 2015-03-17T03:55:59,
-  downstream 2015-03-17T04:05:59 to 2015-03-17T04:25:59. Using the Rankine-Hugoniot
-  jump conditions with mass-flux conservation to obtain the shock speed in the spacecraft
-  frame, what is the upstream Alfvenic Mach number of this shock?'
+prompt: 'The interplanetary shock of 17 March 2015 (St Patrick''s Day storm) is already downloaded
+  into this session''s workspace; load it with load_data() rather than downloading again.
+  Wind MFI 1-minute field in GSM is the dataset saved from cda/WI_H0_MFI/BGSM, and the Wind
+  SWE proton moments are those saved from cda/WI_H1_SWE/Proton_Np_moment, cda/WI_H1_SWE/Proton_V_moment
+  and cda/WI_H1_SWE/Proton_W_moment. All of it covers 2015-03-16T18:00:00 to 2015-03-18T12:00:00;
+  if you fetch anything, use exactly that interval. Use exactly these averaging windows: upstream
+  2015-03-17T03:35:59 to 2015-03-17T03:55:59, downstream 2015-03-17T04:05:59 to 2015-03-17T04:25:59.
+  Using the Rankine-Hugoniot jump conditions with mass-flux conservation to obtain the shock
+  speed in the spacecraft frame, what is the upstream Alfvenic Mach number of this shock?'
 expected:
   value: 3.2082
   units: ''
@@ -19,8 +18,7 @@ expected:
   - mach
   - m_a
 tolerance:
-  rel: 0.1
-provenance: computed from the frozen fixture by scripts/reference_values.py, using
-  the shipped theta_bn and rankine_hugoniot recipe functions over the windows stated
-  in the prompt
+  rel: 0.01
+provenance: computed from the frozen fixture by scripts/reference_values.py, using the shipped
+  theta_bn and rankine_hugoniot recipe functions over the windows stated in the prompt
 licence: CC0 (NASA SPDF/CDAWeb source data); derived values internal

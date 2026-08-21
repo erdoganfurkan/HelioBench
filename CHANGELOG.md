@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The trace records what each tool returned, not only that it was called: `search_parameters`
+  used to reach the trace as `"[5 items]"`, which cannot say whether a wrong answer was never
+  retrieved or was retrieved and passed over. The report grades n1 by MRR and recall@k
+  alongside the pass rate.
+- A run whose answer contradicts its own provenance ledger now fails, whatever the number
+  says. On the reference run's n3 sweep this turns 36/36 into 35/36.
+- Tier n3 tolerance tightened from 5–10% to 1% (1° on the shock-normal angle). The truth is
+  derived from frozen bytes by a method the prompt states; the reference run's worst deviation
+  was 0.33%, so the old band was wide enough to accept a number reached some other way.
+- Tier n2 trimmed from 16 tasks to 5, one per formula. It scored 16/16 with `pass^3` at 100%
+  on 1.0 tool calls per run — saturated, and 512k tokens a sweep.
+
 ### Fixed
 - Three tier-n1 answer keys rejected identifiers the search index describes in the words of
   their own prompt. `n1_wind_position` accepts all 15 Wind GSE position products;
@@ -18,8 +31,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the accepted identifiers are measured rather than recalled.
 - The rule that closes the above, in `docs/what-this-measures.md`: a task is defective when a
   defensible answer exists that its key rejects.
-- 58 tasks over 12 events: 30 retrieval, 16 formulary, 12 method-specified analysis, with a
-  suite that audits every one of them for solvability.
+- 47 tasks over 18 event clusters: 30 retrieval, 5 formulary, 12 method-specified analysis,
+  with a suite that audits every one of them for solvability.
 - Deterministic graders, cluster-bootstrap intervals, `pass^k`, paired McNemar, and a report
   whose header pins the model snapshot, the search index and the task-set digest.
 - A Claude Code skill and plugin that run the graders and are forbidden from replacing them.

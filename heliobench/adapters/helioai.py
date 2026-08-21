@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from heliobench.trace import Trace
@@ -35,6 +36,51 @@ _MODEL_ENV = {
     "opencode": "HELIOAI_OPENCODE_MODEL",
     "ollama": "HELIOAI_OLLAMA_MODEL",
 }
+
+
+_TOOL_OUTPUT_LIMIT = 4000
+
+
+@contextmanager
+def _recording_tool_output(trace: Trace, t0: float):
+    """Append what each tool actually returned to the trace, which HelioAI's events elide.
+
+    A `tool_result` event carries a summary: five products found by `search_parameters`
+    become the string `"[5 items]"`. That is enough to see that a search happened and not
+    enough to say why an answer was wrong — whether the right identifier was never retrieved,
+    or was retrieved and passed over. Those are different defects with different fixes, and
+    telling them apart without this meant replaying the run.
+
+    The registry is the seam, for the same reason the token meter wraps the SDK client: it
+    returns the exact string the model was shown, so nothing in the agent is patched and
+    nothing about the run changes.
+    """
+    from helioai.tools.registry import registry
+
+    original = registry.call_tool
+
+    async def recording(name, arguments=None, **kwargs):
+        result = await original(name, arguments, **kwargs)
+        text = result if isinstance(result, str) else str(result)
+        trace.events.append(
+            {
+                "event": "tool_output",
+                "data": {
+                    "name": name,
+                    "arguments": arguments,
+                    "result": text[:_TOOL_OUTPUT_LIMIT],
+                    "truncated": len(text) > _TOOL_OUTPUT_LIMIT,
+                },
+                "t": round(time.monotonic() - t0, 3),
+            }
+        )
+        return result
+
+    registry.call_tool = recording
+    try:
+        yield
+    finally:
+        registry.call_tool = original
 
 
 def _discoverable_dotenv(start: Path) -> Path | None:
@@ -202,17 +248,18 @@ class HelioAIAgent:
         try:
             from helioai.core.agent_loop import stream_chat
 
-            async for ev in stream_chat(
-                llm, self.user_id, session_id, prompt, restricted=self.restricted
-            ):
-                trace.events.append({**ev, "t": round(time.monotonic() - t0, 3)})
-                name, data = ev.get("event"), ev.get("data") or {}
-                if name == "reply":
-                    trace.reply = data.get("text", "")
-                elif name == "artifact":
-                    trace.artifacts.append(data)
-                elif name == "error":
-                    trace.error = data.get("message", "unknown agent error")
+            with _recording_tool_output(trace, t0):
+                async for ev in stream_chat(
+                    llm, self.user_id, session_id, prompt, restricted=self.restricted
+                ):
+                    trace.events.append({**ev, "t": round(time.monotonic() - t0, 3)})
+                    name, data = ev.get("event"), ev.get("data") or {}
+                    if name == "reply":
+                        trace.reply = data.get("text", "")
+                    elif name == "artifact":
+                        trace.artifacts.append(data)
+                    elif name == "error":
+                        trace.error = data.get("message", "unknown agent error")
         except Exception as e:
             trace.error = f"{type(e).__name__}: {e}"
         finally:

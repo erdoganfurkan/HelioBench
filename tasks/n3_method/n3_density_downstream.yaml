@@ -2,15 +2,14 @@ id: n3_density_downstream
 tier: n3
 event: stpatrick_2015
 fixture: stpatrick_2015
-prompt: 'The interplanetary shock of 17 March 2015 (St Patrick''s Day storm) is already
-  downloaded into this session''s workspace; load it with load_data() rather than
-  downloading again. Wind MFI 1-minute field in GSM is the dataset saved from cda/WI_H0_MFI/BGSM,
-  and the Wind SWE proton moments are those saved from cda/WI_H1_SWE/Proton_Np_moment,
-  cda/WI_H1_SWE/Proton_V_moment and cda/WI_H1_SWE/Proton_W_moment. All of it covers
-  2015-03-16T18:00:00 to 2015-03-18T12:00:00; if you fetch anything, use exactly that
-  interval. Use exactly these averaging windows: upstream 2015-03-17T03:35:59 to 2015-03-17T03:55:59,
-  downstream 2015-03-17T04:05:59 to 2015-03-17T04:25:59. What is the mean proton density
-  over the downstream window? Give it in cm^-3.'
+prompt: 'The interplanetary shock of 17 March 2015 (St Patrick''s Day storm) is already downloaded
+  into this session''s workspace; load it with load_data() rather than downloading again.
+  Wind MFI 1-minute field in GSM is the dataset saved from cda/WI_H0_MFI/BGSM, and the Wind
+  SWE proton moments are those saved from cda/WI_H1_SWE/Proton_Np_moment, cda/WI_H1_SWE/Proton_V_moment
+  and cda/WI_H1_SWE/Proton_W_moment. All of it covers 2015-03-16T18:00:00 to 2015-03-18T12:00:00;
+  if you fetch anything, use exactly that interval. Use exactly these averaging windows: upstream
+  2015-03-17T03:35:59 to 2015-03-17T03:55:59, downstream 2015-03-17T04:05:59 to 2015-03-17T04:25:59.
+  What is the mean proton density over the downstream window? Give it in cm^-3.'
 expected:
   value: 48.5418
   units: cm-3
@@ -18,8 +17,7 @@ expected:
   - densit
   - downstream
 tolerance:
-  rel: 0.05
-provenance: computed from the frozen fixture by scripts/reference_values.py, using
-  the shipped theta_bn and rankine_hugoniot recipe functions over the windows stated
-  in the prompt
+  rel: 0.01
+provenance: computed from the frozen fixture by scripts/reference_values.py, using the shipped
+  theta_bn and rankine_hugoniot recipe functions over the windows stated in the prompt
 licence: CC0 (NASA SPDF/CDAWeb source data); derived values internal

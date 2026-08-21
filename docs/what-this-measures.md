@@ -8,14 +8,24 @@ the index by `scripts/n1_key_candidates.py`, so there is no physics to dispute. 
 tier no existing benchmark covers, and the one closest to what makes a heliophysics agent
 useful or useless.
 
-**n2 — formulary (16 tasks).** Plasma beta, Alfvén speed, Debye length, gyrofrequency,
-inertial length, from stated inputs across three regimes. Reference values computed by calling
-PlasmaPy. Boring on purpose: it is the floor, and a floor has to be unarguable.
+**n2 — formulary (5 tasks).** Plasma beta, Alfvén speed, Debye length, gyrofrequency,
+inertial length — one task per formula, spread across the solar wind, the magnetosheath and
+the magnetotail lobe. Reference values computed by calling PlasmaPy. Boring on purpose: it is
+the floor, and a floor has to be unarguable. It was 16 tasks until the reference run scored
+16/16 with `pass^3` at 100% on 1.0 tool calls per run: a tier that separates nothing is not
+evidence of quality, it is 512k tokens a sweep. What is left guards each wrapper against a
+regression, and the budget went to the tiers that discriminate.
 
 **n3 — method (12 tasks).** Real analysis of the 17 March 2015 interplanetary shock, with the
 averaging windows and the method stated in the prompt. Ground truth is derived from a frozen
 fixture by the shipped recipe functions, so the answer is arithmetic rather than opinion. The
 data replays offline; nothing is downloaded during a run.
+
+Tolerance is 1% (1° on the shock-normal angle), because frozen bytes and a stated method
+leave nothing to disagree about except rounding: across the 36 runs of the reference sweep,
+the worst deviation from the reference was 0.33% and most were exact to the digits printed.
+A looser band would accept a number that was reached some other way, which is the one thing
+this tier exists to detect.
 
 ## Alongside correctness
 
@@ -26,6 +36,15 @@ invented identifiers, tool efficiency, cost, and `pass^k` across repetitions.
 These are the numbers that move when an agent's architecture changes but its accuracy does
 not. An agent that reaches the right answer while stating figures no computation produced is
 an agent that will be wrong next week.
+
+One of them is a gate rather than a note: **a run whose answer contradicts its own provenance
+ledger fails**, however right the number looks. The session computed one value and the reply
+stated another; there is no reading of that where the run passed. The rest — bypassed
+recipes, unsourced figures, tool errors — are reported beside the score.
+
+For n1, every run also records the **rank** of the accepted identifier inside what the search
+returned. It separates the two defects a pass rate cannot: an identifier that was never
+retrieved, and one that was retrieved and passed over.
 
 ## When the benchmark is the thing that is wrong
 

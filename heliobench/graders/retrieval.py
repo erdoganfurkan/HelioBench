@@ -26,6 +26,22 @@ def extract_ids(text: str) -> list[str]:
     return list(seen)
 
 
+def retrieved_ids(trace: Trace) -> list[str]:
+    """Identifiers the search tools returned, in the order the agent was shown them.
+
+    Reading them back out of the raw tool output rather than out of a structured field keeps
+    this working across every search tool and every shape of result: what matters is the
+    position an identifier occupied in what the agent saw.
+    """
+    seen: dict[str, None] = {}
+    for e in trace.events_named("tool_output"):
+        if "search" not in str(e["data"].get("name", "")):
+            continue
+        for i in extract_ids(str(e["data"].get("result", ""))):
+            seen.setdefault(i, None)
+    return list(seen)
+
+
 def grade(task: Task, trace: Trace) -> Result:
     """Pass when the answer names one of the accepted products and invents none.
 
@@ -45,7 +61,26 @@ def grade(task: Task, trace: Trace) -> Result:
     # keeps the grader from needing the 342 MB index.
     invented = sorted({i for ev in trace.events_named("invalid_ids") for i in ev["data"]["ids"]})
 
-    detail = {"quoted": quoted, "accepted": sorted(accepted), "hit": hit, "invented": invented}
+    # Where the answer sat in what the search returned. A tier scored on string equality is
+    # 30 bits of information per sweep; the rank turns each of those into a graded one, and
+    # separates a retrieval that never surfaced the product from a selection that passed it
+    # over. `searched` is false for runs recorded before tool output was kept, and their
+    # absent rank must not be read as a miss.
+    retrieved = retrieved_ids(trace)
+    searched = any(
+        "search" in str(e["data"].get("name", "")) for e in trace.events_named("tool_output")
+    )
+    rank = next((i + 1 for i, pid in enumerate(retrieved) if pid in accepted), None)
+
+    detail = {
+        "quoted": quoted,
+        "accepted": sorted(accepted),
+        "hit": hit,
+        "invented": invented,
+        "searched": searched,
+        "retrieved": len(retrieved),
+        "rank": rank,
+    }
     if invented:
         return Result(task.id, False, f"invented {len(invented)} id(s)", detail)
     if not hit:

@@ -84,3 +84,29 @@ def test_a_task_needing_a_missing_fixture_fails_that_task_not_the_sweep(tmp_path
     result = run(NullAgent(), [task], out, runs=1, fixtures=tmp_path, scratch=tmp_path / "s")
     assert result["records"][0]["passed"] is False
     assert "FileNotFoundError" in result["records"][0]["reason"]
+
+
+def _n1_record(rank, searched=True, passed=True):
+    return {
+        "task_id": f"n1_t{rank}",
+        "tier": "n1",
+        "event": "e",
+        "run": 0,
+        "passed": passed,
+        "reason": "",
+        "detail": {"searched": searched, "retrieved": 5, "rank": rank},
+        "metrics": {},
+    }
+
+
+def test_the_report_grades_retrieval_by_rank_when_the_tool_output_was_kept():
+    records = [_n1_record(1), _n1_record(4), _n1_record(None, passed=False)]
+    md = report.build({"runs": 1}, records)
+    assert "## Retrieval (n1)" in md
+    # MRR = (1/1 + 1/4 + 0) / 3, recall@1 = 1/3, one product never returned.
+    assert "0.417" in md and "33.3%" in md
+
+
+def test_runs_recorded_before_tool_output_was_kept_are_left_out_of_the_rank():
+    md = report.build({"runs": 1}, [_n1_record(None, searched=False)])
+    assert "## Retrieval (n1)" not in md

@@ -64,7 +64,7 @@ and `verify` warns when a discoverable `.env` could still inject anything left u
 `verify` before `run`, always. The invented-identifier check fails open — an unreachable
 search index makes fabrication look flawless — and `verify` is what catches that.
 
-A full run is 58 tasks x 3 repetitions = 174 agent runs against a paid provider. `--agent
+A full run is 47 tasks x 3 repetitions = 141 agent runs against a paid provider. `--agent
 null` and `--task <id>` are the cheap ways to exercise the machinery.
 
 ## From Claude Code

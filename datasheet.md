@@ -23,7 +23,7 @@ that decide whether the benchmark is usable by anyone else.
 Instances are tasks, one YAML file each, carrying the prompt, the expected answer, the
 tolerance, the clustering key, the provenance of the truth, and its licence.
 
-v0.1 holds **58 tasks over 12 events**: 30 retrieval (n1), 16 formulary (n2), 12
+v0.1 holds **47 tasks over 18 event clusters**: 30 retrieval (n1), 5 formulary (n2), 12
 method-specified analysis (n3). The n3 tasks all concern a single event — the 17 March 2015
 interplanetary shock — which is why intervals are clustered by event rather than by task.
 

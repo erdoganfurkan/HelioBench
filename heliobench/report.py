@@ -47,6 +47,40 @@ def _totals(records: list[dict]) -> dict:
     return out
 
 
+def _retrieval_lines(records: list[dict]) -> list[str]:
+    """Where the accepted identifier sat in what the search returned, over the n1 runs.
+
+    A tier graded on string equality yields one bit per run. The rank grades the same run: a
+    failure with the product ranked first is a selection defect, a failure with it never
+    returned is a retrieval defect, and the two have nothing to do with each other. Runs
+    recorded before tool output was kept carry no rank and are left out rather than counted
+    as misses.
+    """
+    measured = [r for r in records if r["tier"] == "n1" and (r.get("detail") or {}).get("searched")]
+    if not measured:
+        return []
+    ranks = [(r.get("detail") or {}).get("rank") for r in measured]
+    n = len(ranks)
+
+    def recall_at(k: int) -> float:
+        return sum(1 for x in ranks if x and x <= k) / n
+
+    mrr = sum(1 / x for x in ranks if x) / n
+    return [
+        "## Retrieval (n1)",
+        "",
+        "| Runs measured | MRR | recall@1 | recall@3 | recall@5 | never returned |",
+        "|---|---|---|---|---|---|",
+        f"| {n} | {mrr:.3f} | {recall_at(1):.1%} | {recall_at(3):.1%} | {recall_at(5):.1%} | "
+        f"{sum(1 for x in ranks if not x)} |",
+        "",
+        "Rank of the first accepted identifier inside what the search tools returned, in the",
+        "order the agent was shown them. It splits a wrong answer into the two defects that",
+        "look identical in the pass rate: never retrieved, or retrieved and passed over.",
+        "",
+    ]
+
+
 def build(meta: dict, records: list[dict]) -> str:
     """Render the markdown report."""
     agent = meta.get("agent", {})
@@ -106,9 +140,9 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| Completion tokens{cost_note} | {t['tokens_completion']} | {t['tokens_completion'] / max(t['runs'], 1):.0f} |",
         f"| Wall clock | {t['wall_s']} s | {t['wall_s'] / max(t['runs'], 1):.1f} s |",
         "",
-        "## Failures",
-        "",
     ]
+    lines += _retrieval_lines(records)
+    lines += ["## Failures", ""]
     failed = defaultdict(list)
     for r in records:
         if not r["passed"]:

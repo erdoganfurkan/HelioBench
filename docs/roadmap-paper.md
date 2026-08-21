@@ -5,7 +5,7 @@ more, and the gaps are known rather than hoped away.
 
 ## Scale
 
-58 tasks over 12 events. At a success rate near 35%, a 100-task benchmark cannot distinguish
+47 tasks over 18 event clusters. At a success rate near 35%, a 100-task benchmark cannot distinguish
 an agent at 35% from one at 45% in an unpaired comparison. Archival venues expect roughly
 **250 tasks over ≥100 independent events**. Everything in the harness — event clustering,
 bootstrap intervals, paired McNemar — is already built for that number; only the tasks are

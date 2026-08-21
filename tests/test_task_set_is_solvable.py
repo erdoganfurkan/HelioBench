@@ -50,6 +50,18 @@ def test_an_answer_off_by_half_fails(task):
     assert not grade(task, Trace(task_id=task.id, prompt="p", agent="wrong", reply=reply)).passed
 
 
+@pytest.mark.parametrize("task", [t for t in TASKS if t.tier == "n3"], ids=lambda t: t.id)
+def test_an_n3_answer_five_percent_off_fails(task):
+    # n3 truth is derived from frozen bytes by a method the prompt states, so a correct
+    # implementation reproduces it to the digits it prints. The tolerance leaves room for
+    # rounding, not for having done something else: the reference run's own spread was
+    # 0.33% at worst.
+    wrong = float(task.expected["value"]) * 1.05
+    near = (task.expected.get("near") or ["value"])[0]
+    reply = f"The {near} is {wrong} {task.expected.get('units', '')}".strip() + "."
+    assert not grade(task, Trace(task_id=task.id, prompt="p", agent="wrong", reply=reply)).passed
+
+
 def test_every_task_declares_where_its_truth_came_from():
     for t in TASKS:
         assert t.provenance.strip(), f"{t.id} has no provenance"

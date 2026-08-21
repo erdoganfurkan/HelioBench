@@ -42,7 +42,7 @@ ${CLAUDE_SKILL_DIR}/scripts/heliobench.sh report results/<run-dir>
 zero on invented identifiers — the check fails open, so absence of the index looks like
 flawless behaviour. `verify` catches that, plus missing fixtures and inherited `.env` files.
 
-**A real run spends the user's API quota.** 58 tasks × 3 repetitions is 174 agent runs. Say
+**A real run spends the user's API quota.** 47 tasks × 3 repetitions is 141 agent runs. Say
 what that will cost in calls before starting one, and get agreement. `--agent null` and
 `--tier n2` are the cheap ways to check the machinery.
 
