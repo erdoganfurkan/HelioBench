@@ -4,7 +4,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
-# Raw traces of a run: large, machine-specific, and regenerable. The *reports* under
-# results/ are committed on purpose — they are the audit trail.
-results/**/traces/
-heliobench-results/**/traces/
+# Individual run directories: large, machine-specific, and regenerable. Only curated
+# summaries placed directly under results/ (e.g. results/summary_*.md) are committed —
+# those are the audit trail, not every local run.
+results/*/
+heliobench-results/*/
