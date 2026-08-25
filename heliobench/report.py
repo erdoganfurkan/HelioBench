@@ -84,6 +84,7 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
 def build(meta: dict, records: list[dict]) -> str:
     """Render the markdown report."""
     agent = meta.get("agent", {})
+    agent_ref = agent.get("agent_ref")
     lines = [
         f"# HelioBench — {agent.get('agent', '?')} {agent.get('agent_version', '')}".rstrip(),
         "",
@@ -104,6 +105,8 @@ def build(meta: dict, records: list[dict]) -> str:
         "| Tier | Tasks | Events | Mean | 95% CI | pass^k | pass≥1 |",
         "|---|---|---|---|---|---|---|",
     ]
+    if agent_ref:
+        lines.insert(6, f"| Agent ref | `{agent_ref}` |")
     runs = int(meta.get("runs", 1))
     for tier in ("n1", "n2", "n3", None):
         per_task, events = _by_task(records, tier)

@@ -67,6 +67,18 @@ search index makes fabrication look flawless — and `verify` is what catches th
 A full run is 47 tasks x 3 repetitions = 141 agent runs against a paid provider. `--agent
 null` and `--task <id>` are the cheap ways to exercise the machinery.
 
+To benchmark a **specific commit** of HelioAI rather than whatever `helioai-agent` happens to
+be installed, pass `--agent-ref` (a branch, tag or commit SHA). It builds an isolated venv
+for that commit once and runs against it:
+
+```bash
+heliobench run --agent helioai --agent-ref main --index-dir /path/to/chroma
+```
+
+The resolved commit is recorded in the report header as `Agent ref`. The search index is not
+provisioned for you — pass it with `--index-dir`, and keep in mind that a given commit should
+be judged against an index built at roughly the same time.
+
 ## From Claude Code
 
 Clone it, run `claude` from the repository, and use `/heliobench`. The skill runs the

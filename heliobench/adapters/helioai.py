@@ -171,6 +171,7 @@ class HelioAIAgent:
         return {
             "agent": self.name,
             "agent_version": helioai.__version__,
+            "agent_ref": os.environ.get("HELIOBENCH_AGENT_REF"),
             "provider": self.provider,
             "model": getattr(cfg, "model", None)
             or os.environ.get(_MODEL_ENV.get(self.provider, ""), ""),

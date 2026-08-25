@@ -159,6 +159,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     agent_opts = argparse.ArgumentParser(add_help=False)
     agent_opts.add_argument("--agent", default="null", choices=["null", "helioai"])
+    agent_opts.add_argument(
+        "--agent-ref",
+        default=None,
+        metavar="REF",
+        help="check out HelioAI at this branch, tag or commit and run against it, in an "
+        "isolated venv (requires --agent helioai)",
+    )
     agent_opts.add_argument("--provider", default="groq", help="LLM provider for the agent")
     agent_opts.add_argument("--model", default=None, help="model id; default is the agent's")
     agent_opts.add_argument("--index-dir", default=None, help="search index the agent must use")
@@ -197,7 +204,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(raw)
+    if getattr(args, "agent_ref", None):
+        if args.agent != "helioai":
+            raise SystemExit("--agent-ref requires --agent helioai")
+        from heliobench.agentsnapshot import prepare
+
+        prepare(args.agent_ref, raw)
+        raise SystemExit(
+            "agent snapshot preparation did not replace the process"
+        )  # pragma: no cover
     return args.func(args)
 
 

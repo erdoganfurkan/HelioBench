@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `--agent-ref <branch|tag|commit>` on `run` and `verify`: benchmark a pinned remote commit
+  of HelioAI in an isolated venv, instead of whatever `helioai-agent` is installed in the
+  harness venv. The ref is resolved via `git ls-remote`, the venv is cached per commit, and
+  the resolved SHA is recorded in the report header as `Agent ref`. Requires `uv`.
+
 ### Changed
 - The trace records what each tool returned, not only that it was called: `search_parameters`
   used to reach the trace as `"[5 items]"`, which cannot say whether a wrong answer was never

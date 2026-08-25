@@ -70,3 +70,11 @@ failures whose accepted id was never returned looked exactly like the ones where
 returned and passed over. | Attribution before diagnosis. A pass rate cannot say whether a
 retrieval tier failed at retrieval or at selection, and every fix for one is a waste of time
 on the other.
+
+`2026-08-25` | `--agent-ref` re-runs the CLI by replacing the process image, and the first
+version did it with `os.execv` — which inherits the *current* environment, silently dropping
+the freshly built `HELIOBENCH_AGENT_REF` and `PYTHONPATH`. The re-executed run would have
+imported the installed agent and found no harness on `sys.path`. | `os.execv` does not take an
+environment; `os.execve` does. When the whole point of re-executing is a modified environment,
+pass it explicitly — and lock it with a test that monkeypatches `os.execve` and asserts on the
+captured env, not just on the code that built it.
