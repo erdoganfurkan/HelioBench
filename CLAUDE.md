@@ -21,8 +21,8 @@ Use the `heliobench` skill (`/heliobench`). It knows the commands, the order to 
 and how to read a report.
 
 Always `verify` before `run` — the search-index check fails open, so a missing index looks
-like a flawless score. And a real run spends the user's API quota: 58 tasks × 3 repetitions
-is 174 agent runs. Agree on that before starting one.
+like a flawless score. And a real run spends the user's API quota: 47 tasks × 3 repetitions
+is 141 agent runs. Agree on that before starting one.
 
 ## Working on this repo
 
