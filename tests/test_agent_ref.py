@@ -108,6 +108,28 @@ def test_ensure_venv_reuses_a_venv_that_is_already_built(tmp_path, monkeypatch):
     assert ensure_venv("0" * 40) == fake_py
 
 
+def test_ensure_venv_cleans_up_on_install_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(shutil, "which", lambda _name: "echo")  # fake uv
+
+    orig_run = subprocess.run
+
+    def mock_run(cmd, **kwargs):
+        if cmd[1] == "venv":
+            return orig_run(cmd, **kwargs)
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    sha = "0" * 40
+    venv_dir = _cache_dir() / "agents" / sha / ".venv"
+
+    with pytest.raises(AgentRefError, match="failed to install"):
+        ensure_venv(sha)
+
+    assert not venv_dir.exists()
+
+
 # --- the re-run environment ----------------------------------------------------------
 
 

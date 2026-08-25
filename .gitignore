@@ -9,3 +9,4 @@ __pycache__/
 # those are the audit trail, not every local run.
 results/*/
 heliobench-results/*/
+venv/
