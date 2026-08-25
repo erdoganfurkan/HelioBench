@@ -117,6 +117,7 @@ def ensure_venv(sha: str, repo: str = REPO) -> Path:
             check=True,
         )
     except subprocess.CalledProcessError as e:
+        shutil.rmtree(venv_dir, ignore_errors=True)
         raise AgentRefError(
             f"failed to install helioai-agent at {sha}: uv exited {e.returncode}"
         ) from e
