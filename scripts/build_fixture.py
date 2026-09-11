@@ -8,12 +8,18 @@ The start/stop strings here are the cache key. `find_existing` compares them as 
 `T00:00` and `T00:00:00` are different keys, and the task prompts must quote these exact
 spellings or the replay leaves for the network.
 
+Beside the data, `windows.json` records the shock time and the averaging windows the frozen
+`rankine_hugoniot` recipe derives from it, plus which saved series is which quantity. That
+file is what `scripts/reference_values.py` reads, so adding an event is running this script
+and that one — not editing either.
+
     python scripts/build_fixture.py stpatrick_2015
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -21,11 +27,13 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
 
 EVENTS = {
     "stpatrick_2015": {
         "start": "2015-03-16T18:00:00",
         "stop": "2015-03-18T12:00:00",
+        "shock": "2015-03-17T04:00:59",
         "params": [
             "cda/WI_H0_MFI/BGSM",
             "cda/WI_H0_MFI/B3GSM",
@@ -36,8 +44,35 @@ EVENTS = {
             "amda/wnd_xyz_gse",
             "amda/ace_xyz_gse",
         ],
+        # Saved-series name (as `get_timeseries` writes it) per quantity the truth needs.
+        "series": {
+            "field": "bgsm",
+            "density": "proton_np_moment",
+            "speed": "proton_v_moment",
+            "thermal_speed": "proton_w_moment",
+        },
     }
 }
+
+
+def windows_for(spec: dict) -> dict:
+    """The `windows.json` record for an event, with the windows derived by the frozen recipe."""
+    from heliobench.recipes import namespace
+
+    rh = namespace("rankine_hugoniot")
+    u0, u1, d0, d1 = rh["shock_windows"](spec["shock"])
+    return {
+        "shock": spec["shock"],
+        "upstream": [str(u0), str(u1)],
+        "downstream": [str(d0), str(d1)],
+        **spec["series"],
+        "note": (
+            f"Windows are shock_windows(shock) from the frozen rankine_hugoniot recipe: guard "
+            f"{rh['GUARD_MIN']:g} min, span {rh['SPAN_MIN']:g} min. They are part of every n3 "
+            "prompt for this event; changing them here without changing the prompts derives a "
+            "truth for a question nobody asked."
+        ),
+    }
 
 
 async def build(event: str) -> Path:
@@ -73,6 +108,9 @@ async def build(event: str) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, dst)
     shutil.rmtree(tmp, ignore_errors=True)
+    (dst.parent / "windows.json").write_text(
+        json.dumps(windows_for(spec), indent=2) + "\n", encoding="utf-8"
+    )
 
     size = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
     print(f"\n{len(ok)} ok, {len(failed)} failed — {size / 1e6:.1f} MB in {dst}")

@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- The recipe functions that derive tier-n3 truth are frozen under `heliobench/recipes/`,
+  byte-for-byte from HelioAI at the commits recorded in `MANIFEST`, and hash-checked by a
+  test. `scripts/reference_values.py` used to exec them from an absolute path on one machine,
+  which made "reproducible by anyone, forever" false. `--check` compares the stored
+  `reference.json` with what the frozen bytes derive without writing anything; a test does
+  the same, and another checks every n3 answer key against the derived figure.
+- `fixtures/<event>/windows.json`: the shock time, the averaging windows the frozen
+  `rankine_hugoniot` recipe derives from it, and which saved series is which quantity.
+  Written by `scripts/build_fixture.py`, read by `scripts/reference_values.py`, so a second
+  event is two script runs rather than an edit to either. A test checks that every n3 prompt
+  states the window edges the truth used.
 - `--jobs N` on `run` and `verify`: repetitions in flight at once, default 1. One event loop
   for the sweep and a semaphore; records are sorted by `(task_id, run)` so the output does not
   depend on completion order — `--agent null --jobs 8` writes the same `results.csv` as

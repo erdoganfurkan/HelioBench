@@ -48,10 +48,9 @@ the reasoning behind each item below; this file is just the trackable slice of i
 
 ## Backlog — noted during a code review, not yet picked up
 
-- [ ] `scripts/reference_values.py:23` hardcodes `RECIPES = /home/furkan/HelioAI/...` — the
-      n3 truth depends on recipes outside the repo, on a machine-specific path. Contradicts
-      "reproducible by anyone, forever": make the path configurable, or freeze the recipes
-      into the repo.
+- [x] `scripts/reference_values.py:23` hardcoded `RECIPES = /home/furkan/HelioAI/...`. Fixed
+      2026-09-11: recipes frozen under `heliobench/recipes/` with upstream commit and sha256
+      in `MANIFEST`; windows moved to `fixtures/<event>/windows.json` (plan C1, C2).
 - [ ] `scripts/n1_key_candidates.py` reads HelioAI's private 342 MB Chroma index, which this
       repo does not vendor — a third party cannot audit the n1 keys. Consider shipping the
       catalogue metadata (id + document) under the roadmap's pointer + SHA-256 + fetch model.

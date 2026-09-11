@@ -55,6 +55,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Frozen byte-for-byte copies of upstream recipe files, checked by hash: a reformatted copy
+# would compute the same thing and fail the check.
+extend-exclude = ["heliobench/recipes/theta_bn.py", "heliobench/recipes/rankine_hugoniot.py"]
 
 [tool.ruff.lint]
 # Pinned explicitly rather than inherited: a ruff release that widens the defaults must not
