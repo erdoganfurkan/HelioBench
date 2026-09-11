@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-09-11
+
+The first tagged state. Tagged as it stood so that the August 2026 campaigns
+(`results/summary_2026-08-21.md`, `results/summary_2026-08-25.md`) stay reproducible against
+a fixed `task_set_digest` before v0.2 changes it.
+
 ### Added
 - `--agent-ref <branch|tag|commit>` on `run` and `verify`: benchmark a pinned remote commit
   of HelioAI in an isolated venv, instead of whatever `helioai-agent` is installed in the

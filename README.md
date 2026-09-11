@@ -38,7 +38,8 @@ a result.
 
 ## Status
 
-v0.1 in development. Not yet released.
+v0.1.0 is tagged: a working instrument with a small task set. `docs/roadmap-paper.md` says
+what it is not yet, and `docs/plan-v0.2-hardening.md` says what comes next.
 
 ## Install
 

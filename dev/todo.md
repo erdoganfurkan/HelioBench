@@ -21,7 +21,7 @@ the reasoning behind each item below; this file is just the trackable slice of i
       isolated venv (`heliobench/agentsnapshot.py`) — resolves the ref, caches a venv per
       commit, re-execs the CLI inside it, and pins the SHA in the report header as `Agent ref`
       (2026-08-25)
-- [ ] v0.1 release (not yet released — see `CHANGELOG.md` `[Unreleased]`)
+- [x] v0.1.0 tagged 2026-09-11, before any v0.2 change touched the digest
 
 ## Planned, written up separately
 
