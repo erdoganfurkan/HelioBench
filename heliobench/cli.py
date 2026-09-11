@@ -106,18 +106,21 @@ def _cmd_run(args) -> int:
 
     out_dir = new_run_dir(args.out, agent.name)
     total = len(tasks) * args.runs
-    state = {"n": 0, "ok": 0}
+    state = {"n": 0, "ok": 0, "err": 0}
 
     def progress(record):
         state["n"] += 1
+        errored = record.get("outcome") == "errored"
         state["ok"] += bool(record["passed"])
-        mark = "." if record["passed"] else "x"
+        state["err"] += errored
+        mark = "." if record["passed"] else ("e" if errored else "x")
         end = "\n" if state["n"] % 50 == 0 or state["n"] == total else ""
         print(f"{mark}{end}", end="", flush=True)
 
     print(f"{len(tasks)} tasks x {args.runs} runs -> {out_dir}")
     run(agent, tasks, out_dir, runs=args.runs, fixtures=Path(args.fixtures), on_event=progress)
-    print(f"\n{state['ok']}/{total} runs passed")
+    errored = f", {state['err']} errored" if state["err"] else ""
+    print(f"\n{state['ok']}/{total} runs passed{errored}")
     print(f"report: {report_mod.write(out_dir)}")
     return 0
 

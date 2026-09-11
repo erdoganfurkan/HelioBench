@@ -17,9 +17,31 @@ from pathlib import Path
 
 from heliobench import __version__
 from heliobench.graders import grade
+from heliobench.graders.outcome import classify
 from heliobench.graders.process import collect
 from heliobench.tasks import Task, load_tasks
 from heliobench.trace import Trace
+
+
+def make_record(task: Task, trace: Trace, run: int) -> dict:
+    """Grade one trace and shape the row that `results.json` stores.
+
+    `passed` stays a boolean for every reader written against it; `outcome` is the
+    three-way verdict beside it. An errored run is `passed: false` *and* `outcome: errored`,
+    so a tool that only knows the boolean still never counts it as a success.
+    """
+    result = grade(task, trace)
+    return {
+        "task_id": task.id,
+        "tier": task.tier,
+        "event": task.event,
+        "run": run,
+        "passed": result.passed,
+        "outcome": classify(trace, result.passed),
+        "reason": result.reason,
+        "detail": result.detail,
+        "metrics": collect(trace).as_dict(),
+    }
 
 
 def task_set_digest(tasks: list[Task]) -> str:
@@ -89,19 +111,8 @@ def run(
                     agent=getattr(agent, "name", "?"),
                     error=f"{type(e).__name__}: {e}",
                 )
-            result = grade(task, trace)
-            metrics = collect(trace)
             trace.write(out_dir / "traces" / f"{task.id}.{i}.json")
-            record = {
-                "task_id": task.id,
-                "tier": task.tier,
-                "event": task.event,
-                "run": i,
-                "passed": result.passed,
-                "reason": result.reason,
-                "detail": result.detail,
-                "metrics": metrics.as_dict(),
-            }
+            record = make_record(task, trace, i)
             records.append(record)
             if on_event:
                 on_event(record)
@@ -146,19 +157,7 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
         if task is None:
             skipped.append(trace.task_id)
             continue
-        result = grade(task, trace)
-        records.append(
-            {
-                "task_id": task.id,
-                "tier": task.tier,
-                "event": task.event,
-                "run": int(path.stem.rsplit(".", 1)[-1]),
-                "passed": result.passed,
-                "reason": result.reason,
-                "detail": result.detail,
-                "metrics": collect(trace).as_dict(),
-            }
-        )
+        records.append(make_record(task, trace, int(path.stem.rsplit(".", 1)[-1])))
 
     seen = {r["task_id"] for r in records}
     meta_path = run_dir / "meta.json"

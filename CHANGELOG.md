@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- A run the provider or the network lost is `errored`, not `failed`. `results.json` and
+  `results.csv` carry `outcome` ∈ {passed, failed, errored} beside the boolean; errored runs
+  leave every denominator, a task whose every repetition errored is unscored, and a tier with
+  more than 10% of its runs errored is flagged as not comparable. Classification is by
+  exception class in `heliobench/graders/outcome.py` and defaults to the agent's fault: only
+  timeouts, connection failures, rate limits and a full disk are excused. Re-grading the
+  2026-08-25 `1fcb2f0` arm turns 32/36 (88.9%) into 32/34 with 2 errored (93.1%), with no
+  flag passed and no CSV edited.
+
 ## [0.1.0] — 2026-09-11
 
 The first tagged state. Tagged as it stood so that the August 2026 campaigns

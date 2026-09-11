@@ -12,16 +12,32 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from heliobench.graders.outcome import ERRORED, PASSED
 from heliobench.stats import summarise
 
 
+def outcome_of(record: dict) -> bool | None:
+    """The three-way verdict of a stored record: True, False, or None for errored.
+
+    Records written before `outcome` existed carry only the boolean, and are read as it
+    says: a re-grade rewrites them with the field, and until then a stored error stays a
+    failure rather than being guessed at.
+    """
+    out = record.get("outcome")
+    if out == ERRORED:
+        return None
+    if out is not None:
+        return out == PASSED
+    return bool(record["passed"])
+
+
 def _by_task(records: list[dict], tier: str | None = None) -> tuple[dict, dict]:
-    per_task: dict[str, list[bool]] = defaultdict(list)
+    per_task: dict[str, list[bool | None]] = defaultdict(list)
     events: dict[str, str] = {}
     for r in records:
         if tier and r["tier"] != tier:
             continue
-        per_task[r["task_id"]].append(bool(r["passed"]))
+        per_task[r["task_id"]].append(outcome_of(r))
         events[r["task_id"]] = r["event"]
     return per_task, events
 
@@ -102,21 +118,28 @@ def build(meta: dict, records: list[dict]) -> str:
         "",
         "## Score",
         "",
-        "| Tier | Tasks | Events | Mean | 95% CI | pass^k | pass≥1 |",
-        "|---|---|---|---|---|---|---|",
+        "| Tier | Tasks | Events | Mean | 95% CI | pass^k | pass≥1 | Errored |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     if agent_ref:
         lines.insert(6, f"| Agent ref | `{agent_ref}` |")
     runs = int(meta.get("runs", 1))
+    not_comparable: list[str] = []
     for tier in ("n1", "n2", "n3", None):
         per_task, events = _by_task(records, tier)
         if not per_task:
             continue
         s = summarise(per_task, events, runs)
         label = tier or "**all**"
+        errored = str(s.n_errored)
+        if s.n_unscored:
+            errored += f" ({s.n_unscored} task(s) unscored)"
+        if not s.comparable:
+            errored += " ⚠️"
+            not_comparable.append(label)
         lines.append(
             f"| {label} | {s.n_tasks} | {s.n_events} | {s.mean:.1%} | "
-            f"[{s.ci[0]:.1%}, {s.ci[1]:.1%}] | {s.pass_k:.1%} | {s.pass_any:.1%} |"
+            f"[{s.ci[0]:.1%}, {s.ci[1]:.1%}] | {s.pass_k:.1%} | {s.pass_any:.1%} | {errored} |"
         )
 
     t = _totals(records)
@@ -125,8 +148,19 @@ def build(meta: dict, records: list[dict]) -> str:
         "",
         "The interval is bootstrapped over events, not tasks: several questions about one",
         "event are several looks at the same event. `pass^k` is the fraction passing on every",
-        "repetition — the gap to `pass≥1` is how much of the score is luck.",
+        "repetition — the gap to `pass≥1` is how much of the score is luck. An errored run is",
+        "one the provider or the network lost; it leaves every denominator, and a task whose",
+        "every repetition errored is unscored rather than failed.",
         "",
+    ]
+    if not_comparable:
+        lines += [
+            f"⚠️ **Not comparable:** {', '.join(not_comparable)} — more than 10% of the runs",
+            "errored. A score with that much of the sweep missing cannot be quoted against",
+            "another arm; re-run the errored tasks first.",
+            "",
+        ]
+    lines += [
         "## Process",
         "",
         "| Metric | Total | Per run |",
@@ -145,10 +179,23 @@ def build(meta: dict, records: list[dict]) -> str:
         "",
     ]
     lines += _retrieval_lines(records)
+    errored = [r for r in records if outcome_of(r) is None]
+    if errored:
+        lines += [
+            "## Errored",
+            "",
+            "Runs the infrastructure lost, not the agent. Excluded from every score above.",
+            "",
+            "| Task | Run | Error |",
+            "|---|---|---|",
+        ]
+        for r in sorted(errored, key=lambda r: (r["task_id"], r["run"])):
+            lines.append(f"| `{r['task_id']}` | {r['run']} | {(r['reason'] or '?')[:90]} |")
+        lines.append("")
     lines += ["## Failures", ""]
     failed = defaultdict(list)
     for r in records:
-        if not r["passed"]:
+        if outcome_of(r) is False:
             failed[r["task_id"]].append(r["reason"] or "?")
     if not failed:
         lines.append("None.")
@@ -170,7 +217,17 @@ def write(out_dir: Path) -> Path:
 
     with (out_dir / "results.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["task_id", "tier", "event", "run", "passed", "reason"])
+        w.writerow(["task_id", "tier", "event", "run", "passed", "outcome", "reason"])
         for r in records:
-            w.writerow([r["task_id"], r["tier"], r["event"], r["run"], r["passed"], r["reason"]])
+            w.writerow(
+                [
+                    r["task_id"],
+                    r["tier"],
+                    r["event"],
+                    r["run"],
+                    r["passed"],
+                    r.get("outcome", PASSED if r["passed"] else "failed"),
+                    r["reason"],
+                ]
+            )
     return md

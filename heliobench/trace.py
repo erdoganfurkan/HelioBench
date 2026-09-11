@@ -39,6 +39,10 @@ class Trace:
             produced, as opposed to which numbers the model wrote down.
         error: Set when the run failed. A failed run is scored as a miss, never dropped:
             silently discarding failures inflates every score above it.
+        error_kind: The adapter's own word on `error`, when it has one. `"transport"` says
+            the failure was the provider or the network rather than the agent, and
+            `graders.outcome` scores it as errored instead of failed. Left empty, the
+            exception class in `error` decides.
     """
 
     task_id: str
@@ -51,6 +55,7 @@ class Trace:
     tokens: TokenUsage = field(default_factory=TokenUsage)
     wall_s: float = 0.0
     error: str | None = None
+    error_kind: str | None = None
     env: dict = field(default_factory=dict)
 
     def events_named(self, name: str) -> list[dict]:
