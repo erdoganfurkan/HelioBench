@@ -1,6 +1,10 @@
 # Plan — HelioBench v0.2: trustworthy numbers, faster sweeps, more than one event
 
-**Status:** written 2026-08-28, not started. Companion to `docs/roadmap-paper.md` (which says
+**Status:** written 2026-08-28. On 2026-09-11 sections A, B1–B4, C1–C2, D1–D5 and E1 landed on
+the `v0.2-hardening` branch, one commit each; `CHANGELOG.md [Unreleased]` has the details and
+the before/after regrades. Still open: **B5** (concurrency against the real agent — needs a
+paid run), **C3–C4** (more shock events — needs the network and a licence-checked selection),
+**E2–E4** (publication). Companion to `docs/roadmap-paper.md` (which says
 what a *paper* needs) and `dev/todo.md` (which tracks what is in flight). This file is the
 ordered plan for the next release.
 
