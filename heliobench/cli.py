@@ -169,7 +169,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="check out HelioAI at this branch, tag or commit and run against it, in an "
         "isolated venv (requires --agent helioai)",
     )
-    agent_opts.add_argument("--provider", default="groq", help="LLM provider for the agent")
+    # Same default as the adapter's own: a run launched without a flag must land where the
+    # adapter documents it does, or the report header and the CLI disagree about the arm.
+    agent_opts.add_argument("--provider", default="azure", help="LLM provider for the agent")
     agent_opts.add_argument("--model", default=None, help="model id; default is the agent's")
     agent_opts.add_argument("--index-dir", default=None, help="search index the agent must use")
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")

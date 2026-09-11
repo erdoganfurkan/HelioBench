@@ -33,3 +33,16 @@ def test_an_unknown_task_id_is_refused_rather_than_silently_dropped(capsys):
     with pytest.raises(SystemExit) as e:
         main(["list", "--task", "no_such_task"])
     assert "no such task" in str(e.value)
+
+
+def test_the_cli_and_the_adapter_agree_on_the_default_provider():
+    # `run --agent helioai` with no flag used to land on groq while the adapter's own
+    # default, and every documented run, was azure.
+    import inspect
+
+    from heliobench.adapters.helioai import HelioAIAgent
+    from heliobench.cli import build_parser
+
+    args = build_parser().parse_args(["verify", "--agent", "helioai"])
+    adapter_default = inspect.signature(HelioAIAgent.__init__).parameters["provider"].default
+    assert args.provider == adapter_default == "azure"
