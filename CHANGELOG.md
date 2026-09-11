@@ -58,6 +58,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2026-08-25 `1fcb2f0` arm turns 32/36 (88.9%) into 32/34 with 2 errored (93.1%), with no
   flag passed and no CSV edited.
 
+### Fixed
+- The HelioAI adapter's tool-output recorder wrapped `registry.call_tool` — a module-level
+  singleton — once per run and put the original back on exit. Under `--jobs > 1` the
+  wrappers nested: every trace in flight received every run's tool output, and the first run
+  to finish unwrapped the rest, which then recorded nothing. Those are the events the n1
+  rank, `truncated` and invented-id metrics read. The registry is now wrapped once by the
+  first run to start and dispatches to the recorder held in the current asyncio task context,
+  the same mechanism HelioAI uses for its own per-session state; the last run out restores
+  the class method. Tested against a stand-in registry in CI and through the real
+  `stream_chat` where the agent is installed. `--agent null` could not have shown this: it
+  never touches the registry, so the byte-identical `--jobs 1`/`--jobs 8` check above proved
+  the runner and nothing about the adapter.
+
 ## [0.1.0] — 2026-09-11
 
 The first tagged state. Tagged as it stood so that the August 2026 campaigns

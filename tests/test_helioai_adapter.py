@@ -130,6 +130,44 @@ def test_a_computed_number_reaches_the_provenance_ledger(tmp_path, monkeypatch):
     assert trace.tokens.calls == 2, "both LLM turns must be counted, not just the last"
 
 
+def test_concurrent_runs_through_the_real_agent_loop_keep_their_tool_output_apart(
+    tmp_path, monkeypatch
+):
+    # `tests/test_tool_recording.py` proves the recorder against a stand-in registry; this
+    # proves the task context survives HelioAI's own `stream_chat`, sandbox and workspace
+    # context variables, which is the path `--jobs > 1` actually takes.
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    agent._load()
+    scripts = {
+        "n2_a": _ScriptedLLM('export("alpha", 1.0, "")', "alpha is 1.0"),
+        "n2_b": _ScriptedLLM('import time; time.sleep(0.5); export("bravo", 2.0, "")', "bravo"),
+    }
+    pending = [scripts["n2_a"], scripts["n2_b"]]
+    monkeypatch.setattr(
+        "helioai.core.llm.factory.build_llm_client", lambda provider=None: pending.pop(0)
+    )
+
+    async def both():
+        return await asyncio.gather(
+            agent.run("a", tmp_path / "bench_a", task_id="n2_a"),
+            agent.run("b", tmp_path / "bench_b", task_id="n2_b"),
+        )
+
+    a, b = asyncio.run(both())
+    assert a.error is None and b.error is None, (a.error, b.error)
+
+    def outputs(trace):
+        return [e["data"] for e in trace.events if e["event"] == "tool_output"]
+
+    assert [o["name"] for o in outputs(a)] == ["run_python"]
+    assert [o["name"] for o in outputs(b)] == ["run_python"]
+    assert "alpha" in outputs(a)[0]["arguments"]["code"]
+    assert "bravo" in outputs(b)[0]["arguments"]["code"]
+    from helioai.tools.registry import registry
+
+    assert "call_tool" not in vars(registry)
+
+
 def test_a_seeded_fixture_is_served_without_the_network(tmp_path):
     """The offline story, end to end: no request interception anywhere, just a manifest that
     `get_timeseries` consults before it reaches for the archive."""
@@ -210,10 +248,10 @@ def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
     original = registry.call_tool
     trace = Trace(task_id="t", prompt="p", agent="a")
     with _recording_tool_output(trace, 0.0):
-        assert registry.call_tool is not original
+        assert registry.call_tool != original
         out = asyncio.run(registry.call_tool("no_such_tool", {"query": "x"}))
 
-    assert registry.call_tool is original
+    assert registry.call_tool == original and "call_tool" not in vars(registry)
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
     assert ev["data"]["name"] == "no_such_tool"
     assert ev["data"]["result"] == out and "unknown tool" in out

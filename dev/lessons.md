@@ -103,3 +103,15 @@ three weeks under a docstring claiming the truth was "reproducible by anyone, fo
 Anything the truth depends on lives in the repository, byte-for-byte, with the upstream
 commit and a hash a test checks. `--check` proves the stored reference reproduces; a test
 runs it in CI.
+
+`2026-09-11` | `--jobs N` shipped with `--agent null --jobs 8` writing the same `results.csv`
+as `--jobs 1`, and that was taken as evidence the sweep was concurrency-safe. The HelioAI
+adapter's tool-output recorder monkeypatched a module-level singleton (`registry.call_tool`)
+per run and restored it on exit; two concurrent runs nested the wrappers, both traces got
+both runs' tool output, and the first to finish unwrapped the second, which recorded nothing
+from then on. The null agent never calls the registry, so the check exercised the runner and
+not the seam. | Anything patched on a shared object for the duration of a run is a bug the
+moment two runs overlap. Patch once and dispatch on the asyncio task context
+(`contextvars`), as HelioAI itself does for its workspace state. And a concurrency test on a
+path the null agent skips is not a concurrency test: the recorder now takes an injectable
+registry so CI, which installs no agent, can run two overlapping runs through it.

@@ -83,7 +83,11 @@ inside the adapter, so a rate limit costs latency rather than an `errored` run. 
 **B5. Confirm the agent is concurrency-safe.** HelioAI keeps a per-`(user_id, session_id)`
 SQLite history in `helioai/core/session.py`, and a sqlite failure has already been observed
 under disk pressure. Before enabling `--jobs > 1` by default, run `--agent null --jobs 8` (free)
-and then a 12-run n2 sweep at `--jobs 4`, and diff the results against `--jobs 1`.
+and then a 12-run n2 sweep at `--jobs 4`, and diff the results against `--jobs 1`. The null
+sweep is not enough on its own: it never reaches the adapter, and the adapter's per-run patch
+of `registry.call_tool` was corrupting concurrent traces while the null check passed (fixed
+2026-09-11, `dev/lessons.md`). Anything the adapter installs on a shared object needs a test
+with two overlapping runs, not one.
 
 **Acceptance:** an n3 sweep at `--jobs 6` finishes in under 20 minutes with the same
 `results.csv` as `--jobs 1`, and zero `errored` runs attributable to concurrency.
