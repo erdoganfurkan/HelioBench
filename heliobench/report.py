@@ -51,6 +51,9 @@ def _totals(records: list[dict]) -> dict:
         "recipes_bypassed",
         "contradicted",
         "unsourced",
+        "harness_matched",
+        "harness_derived",
+        "harness_unsourced",
         "ledger_entries",
         "n_iterations",
         "tokens_prompt",
@@ -61,6 +64,7 @@ def _totals(records: list[dict]) -> dict:
     out["runs"] = len(records)
     out["tokens_exact"] = all(r["metrics"].get("tokens_exact", True) for r in records)
     out["provenance_reported"] = sum(1 for r in records if r["metrics"].get("provenance_reported"))
+    out["gated"] = sum(1 for r in records if (r.get("detail") or {}).get("gate") == "contradicted")
     return out
 
 
@@ -76,8 +80,20 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
     measured = [r for r in records if r["tier"] == "n1" and (r.get("detail") or {}).get("searched")]
     if not measured:
         return []
-    ranks = [(r.get("detail") or {}).get("rank") for r in measured]
+    # A run whose search output was cut at the adapter's limit and whose accepted id was not
+    # in the kept part is not a "never returned": the id may have been past the cut. Such runs
+    # are counted, not ranked. A run where the id *was* found before the cut is ranked as
+    # usual — the cut cannot have moved it.
+    truncated_unranked = [
+        r
+        for r in measured
+        if (r.get("detail") or {}).get("truncated") and not (r.get("detail") or {}).get("rank")
+    ]
+    ranked = [r for r in measured if r not in truncated_unranked]
+    ranks = [(r.get("detail") or {}).get("rank") for r in ranked]
     n = len(ranks)
+    if not n:
+        return []
 
     def recall_at(k: int) -> float:
         return sum(1 for x in ranks if x and x <= k) / n
@@ -86,14 +102,16 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
     return [
         "## Retrieval (n1)",
         "",
-        "| Runs measured | MRR | recall@1 | recall@3 | recall@5 | never returned |",
-        "|---|---|---|---|---|---|",
+        "| Runs measured | MRR | recall@1 | recall@3 | recall@5 | never returned | truncated, unranked |",
+        "|---|---|---|---|---|---|---|",
         f"| {n} | {mrr:.3f} | {recall_at(1):.1%} | {recall_at(3):.1%} | {recall_at(5):.1%} | "
-        f"{sum(1 for x in ranks if not x)} |",
+        f"{sum(1 for x in ranks if not x)} | {len(truncated_unranked)} |",
         "",
         "Rank of the first accepted identifier inside what the search tools returned, in the",
         "order the agent was shown them. It splits a wrong answer into the two defects that",
-        "look identical in the pass rate: never retrieved, or retrieved and passed over.",
+        "look identical in the pass rate: never retrieved, or retrieved and passed over. A run",
+        "whose search output was cut at the trace's 4000-character limit before any accepted",
+        "id appeared is left out of the rank rather than counted as never returned.",
         "",
     ]
 
@@ -178,8 +196,11 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| LLM turns | {t['n_iterations']} | {t['n_iterations'] / max(t['runs'], 1):.1f} |",
         f"| Invented identifiers | {t['invented_ids']} | {t['invented_ids'] / max(t['runs'], 1):.2f} |",
         f"| Recipes bypassed | {t['recipes_bypassed']} | {t['recipes_bypassed'] / max(t['runs'], 1):.2f} |",
-        f"| Numbers contradicted by the ledger | {t['contradicted']} | — |",
-        f"| Numbers no computation produced | {t['unsourced']} | — |",
+        f"| Answers contradicting the ledger (gate) | {t['gated']} | — |",
+        f"| Numbers contradicted, by the agent's own count | {t['contradicted']} | — |",
+        f"| Numbers no computation produced, by the agent's count | {t['unsourced']} | — |",
+        f"| Numbers no computation produced, by the harness | {t['harness_unsourced']} | — |",
+        f"| Numbers the harness sourced from the ledger | {t['harness_matched'] + t['harness_derived']} | — |",
         f"| Ledger entries | {t['ledger_entries']} | {t['ledger_entries'] / max(t['runs'], 1):.1f} |",
         f"| Prompt tokens{cost_note} | {t['tokens_prompt']} | {t['tokens_prompt'] / max(t['runs'], 1):.0f} |",
         f"| Completion tokens{cost_note} | {t['tokens_completion']} | {t['tokens_completion'] / max(t['runs'], 1):.0f} |",

@@ -15,13 +15,18 @@ from heliobench.trace import Trace
 @dataclass
 class ProcessMetrics:
     """Attributes:
-    unsourced: numbers the answer states that no computation in the session produced.
-    contradicted: numbers the session computed *differently* from what the answer claims —
-        the most serious of the four, and the rarest.
+    unsourced: numbers the answer states that no computation in the session produced,
+        by the agent's own count.
+    contradicted: numbers the session computed *differently* from what the answer claims,
+        by the agent's own count. Reported, never gated: the gate recomputes its own
+        verdict in `graders.provenance`, and the two are shown side by side.
     recipes_bypassed: calibrated methods that were reimplemented from memory, or read and
         then not actually called.
     retries: provider calls that failed transiently and were repeated; the run paid for
         them in latency, not in tokens, and a sweep full of them is a provider problem.
+    harness_matched, harness_derived, harness_unsourced: the harness's own classification
+        of every number in the reply against the ledger, so the agent's count can be checked
+        rather than trusted.
     """
 
     n_iterations: int = 0
@@ -33,6 +38,9 @@ class ProcessMetrics:
     derived: int = 0
     unsourced: int = 0
     provenance_reported: bool = False
+    harness_matched: int = 0
+    harness_derived: int = 0
+    harness_unsourced: int = 0
     invented_ids: int = 0
     recipes_bypassed: int = 0
     ledger_entries: int = 0
@@ -82,4 +90,13 @@ def collect(trace: Trace) -> ProcessMetrics:
         m.contradicted = int(d.get("contradicted", 0))
         m.derived = int(d.get("derived", 0))
         m.unsourced = int(d.get("unsourced", 0))
+    if trace.ledger.get("values"):
+        from heliobench.graders.provenance import classify_prose
+
+        h = classify_prose(trace.reply, trace.ledger, trace.prompt)
+        m.harness_matched, m.harness_derived, m.harness_unsourced = (
+            h.matched,
+            h.derived,
+            h.unsourced,
+        )
     return m

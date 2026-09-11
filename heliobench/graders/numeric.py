@@ -64,12 +64,12 @@ def _within(found: float, want: float, tol: dict) -> bool:
     return abs(found - want) <= rel * max(abs(want), 1e-12)
 
 
-def candidates(text: str, units: str, near: list[str] | None) -> list[float]:
-    """Numbers in `text` that carry a compatible unit, optionally close to a keyword.
+def candidates_with_text(text: str, units: str, near: list[str] | None) -> list[tuple[str, float]]:
+    """`candidates`, keeping the spelling each number had in the reply.
 
-    `near` is the defence against a lucky substring: a reply full of numbers will eventually
-    contain the right one by accident, and requiring it to sit beside the words naming the
-    quantity is what separates an answer from a coincidence.
+    The spelling carries the precision the agent claimed — `571` and `571.07` are the same
+    float and different claims — and the provenance check needs it to know how much rounding
+    a match may absorb.
     """
     text = (text or "").replace("−", "-").replace("≈", "~")
     windows: list[tuple[int, int]] = []
@@ -79,7 +79,7 @@ def candidates(text: str, units: str, near: list[str] | None) -> list[float]:
             for m in re.finditer(re.escape(word.lower()), low):
                 windows.append((m.start() - 120, m.end() + 120))
 
-    out: list[float] = []
+    out: list[tuple[str, float]] = []
     for m in _NUMBER.finditer(text):
         raw, unit = m.group(1), (m.group(2) or "")
         if not same_unit(unit, units):
@@ -87,10 +87,20 @@ def candidates(text: str, units: str, near: list[str] | None) -> list[float]:
         if windows and not any(a <= m.start() <= b for a, b in windows):
             continue
         try:
-            out.append(float(raw))
+            out.append((raw, float(raw)))
         except ValueError:
             continue
     return out
+
+
+def candidates(text: str, units: str, near: list[str] | None) -> list[float]:
+    """Numbers in `text` that carry a compatible unit, optionally close to a keyword.
+
+    `near` is the defence against a lucky substring: a reply full of numbers will eventually
+    contain the right one by accident, and requiring it to sit beside the words naming the
+    quantity is what separates an answer from a coincidence.
+    """
+    return [v for _, v in candidates_with_text(text, units, near)]
 
 
 def grade(task: Task, trace: Trace) -> Result:
@@ -102,12 +112,15 @@ def grade(task: Task, trace: Trace) -> Result:
     near = task.expected.get("near") or []
     tol = task.tolerance or {"rel": 0.05}
 
-    found = candidates(trace.reply, units, near)
+    pairs = candidates_with_text(trace.reply, units, near)
+    found = [v for _, v in pairs]
     detail = {"want": want, "units": units, "tolerance": tol, "found": found}
     if not found:
         return Result(task.id, False, "no number with the expected unit in the answer", detail)
-    hits = [v for v in found if _within(v, want, tol)]
+    hit_pairs = [(raw, v) for raw, v in pairs if _within(v, want, tol)]
+    hits = [v for _, v in hit_pairs]
     detail["hits"] = hits
+    detail["hits_text"] = [raw for raw, _ in hit_pairs]
     if not hits:
         return Result(task.id, False, f"closest {min(found, key=lambda v: abs(v - want))}", detail)
     return Result(task.id, True, "", detail)

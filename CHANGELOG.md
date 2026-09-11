@@ -33,6 +33,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `task_set_digest` differ. Every paired comparison before this was a hand-run scratch script.
 
 ### Changed
+- The provenance gate is the harness's verdict, computed in `heliobench/graders/provenance.py`
+  from the ledger and the reply, not the agent's own `contradicted` counter. That counter had
+  fired ten times across the stored sweeps, every time on a correct answer — a vector
+  component, a vector magnitude or a literature value quoted beside the right result. The
+  gate now asks one question of the graded answer: is any accepted value in the ledger, a
+  reconstructed vector component or magnitude, or a difference or ratio of two ledger
+  scalars? If none is and a same-unit ledger scalar sits within a quarter of it, the session
+  computed one number and the reply stated another. Every number in the prose is still
+  classified (matched / derived / unsourced) and reported beside the agent's own count, so a
+  disagreement between the two is visible. Regrading the six August arms moves n3 from
+  86.1–97.2% to 91.7–100%; the gate fires on none of them, the agent's counter on ten.
+- A tier-n1 run whose search output was cut at the trace's 4000-character limit before any
+  accepted id appeared is left out of the rank metric and counted apart, rather than as
+  "never returned". The `truncated` flag was recorded and read by nobody.
 - `--provider` on the CLI defaults to `azure`, as the HelioAI adapter already did; a run
   launched without the flag used to land on groq.
 - A run the provider or the network lost is `errored`, not `failed`. `results.json` and
