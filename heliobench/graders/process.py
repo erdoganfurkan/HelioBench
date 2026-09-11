@@ -20,11 +20,14 @@ class ProcessMetrics:
         the most serious of the four, and the rarest.
     recipes_bypassed: calibrated methods that were reimplemented from memory, or read and
         then not actually called.
+    retries: provider calls that failed transiently and were repeated; the run paid for
+        them in latency, not in tokens, and a sweep full of them is a provider problem.
     """
 
     n_iterations: int = 0
     tool_calls: int = 0
     tool_errors: int = 0
+    retries: int = 0
     matched: int = 0
     contradicted: int = 0
     derived: int = 0
@@ -57,6 +60,7 @@ def collect(trace: Trace) -> ProcessMetrics:
             for e in trace.events_named("tool_result")
             if str(e["data"].get("summary", "")).startswith("error: ")
         ),
+        retries=len(trace.events_named("retry")),
         invented_ids=sum(len(e["data"]["ids"]) for e in trace.events_named("invalid_ids")),
         recipes_bypassed=sum(
             len(e["data"]["recipes"]) for e in trace.events_named("recipe_bypassed")

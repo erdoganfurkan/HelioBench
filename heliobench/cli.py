@@ -28,6 +28,7 @@ def _build_agent(args):
             provider=args.provider,
             model=args.model,
             index_dir=Path(args.index_dir) if args.index_dir else None,
+            jobs=getattr(args, "jobs", 1),
         )
     raise SystemExit(f"unknown agent {args.agent!r}")
 
@@ -118,7 +119,15 @@ def _cmd_run(args) -> int:
         print(f"{mark}{end}", end="", flush=True)
 
     print(f"{len(tasks)} tasks x {args.runs} runs -> {out_dir}")
-    run(agent, tasks, out_dir, runs=args.runs, fixtures=Path(args.fixtures), on_event=progress)
+    run(
+        agent,
+        tasks,
+        out_dir,
+        runs=args.runs,
+        fixtures=Path(args.fixtures),
+        on_event=progress,
+        jobs=args.jobs,
+    )
     errored = f", {state['err']} errored" if state["err"] else ""
     print(f"\n{state['ok']}/{total} runs passed{errored}")
     print(f"report: {report_mod.write(out_dir)}")
@@ -189,6 +198,13 @@ def build_parser() -> argparse.ArgumentParser:
     agent_opts.add_argument("--index-dir", default=None, help="search index the agent must use")
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")
     agent_opts.add_argument("--fixtures", default="fixtures", help="frozen data for tier n3")
+    agent_opts.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="repetitions in flight at once (default 1). Above 1, per-run wall clock measures "
+        "queueing rather than the agent and is not reported; cost stays exact.",
+    )
 
     ls = sub.add_parser("list", parents=[common], help="list the tasks that would run")
     ls.set_defaults(func=_cmd_list)

@@ -26,6 +26,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from heliobench.retry import attach_backoff
 from heliobench.trace import Trace
 from heliobench.usage import attach_token_meter
 
@@ -83,7 +84,7 @@ def _recording_tool_output(trace: Trace, t0: float):
         registry.call_tool = original
 
 
-def low_disk(where: Path, need_gb: float = 2.0) -> str | None:
+def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     """Complain when the agent has too little room to write, or None when it has enough.
 
     A sweep that fills the disk dies mid-flight with the quota already spent, and it does not
@@ -91,15 +92,19 @@ def low_disk(where: Path, need_gb: float = 2.0) -> str | None:
     from anything about storage. HelioAI seeds each session's workspace from the speasy
     inventory — measured at ~37 MB for a session that loads data and a few kilobytes for one
     that does not — so a full sweep needs room for a workspace per run, over a gigabyte.
+
+    Each concurrent job seeds its own workspace at the same time, so the floor rises by half
+    a gigabyte per job beyond the first.
     """
     where = Path(where)
+    need_gb = need_gb + 0.5 * max(jobs - 1, 0)
     probe = where if where.exists() else where.parent
     free_gb = shutil.disk_usage(probe).free / 1e9
     if free_gb >= need_gb:
         return None
     return (
         f"{free_gb:.1f} GB free where the agent writes ({where}) — a sweep seeds a workspace "
-        f"per run and needs more than {need_gb:.0f} GB"
+        f"per run and needs more than {need_gb:.1f} GB at jobs={jobs}"
     )
 
 
@@ -126,6 +131,7 @@ class HelioAIAgent:
         index_dir: Path | None = None,
         restricted: bool = True,
         user_id: str = "heliobench",
+        jobs: int = 1,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.provider = provider
@@ -133,6 +139,7 @@ class HelioAIAgent:
         self.index_dir = Path(index_dir) if index_dir else None
         self.restricted = restricted
         self.user_id = user_id
+        self.jobs = jobs
         self._imported = False
 
     def _pin_env(self) -> None:
@@ -208,7 +215,7 @@ class HelioAIAgent:
         elif n == 0:
             problems.append("the Chroma index is empty — invented ids would score as valid")
 
-        low = low_disk(self.data_dir)
+        low = low_disk(self.data_dir, jobs=self.jobs)
         if low:
             problems.append(low)
 
@@ -270,6 +277,7 @@ class HelioAIAgent:
         meter = attach_token_meter(llm)
 
         t0 = time.monotonic()
+        attach_backoff(llm, trace, t0)
         try:
             from helioai.core.agent_loop import stream_chat
 

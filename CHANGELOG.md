@@ -7,6 +7,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `--jobs N` on `run` and `verify`: repetitions in flight at once, default 1. One event loop
+  for the sweep and a semaphore; records are sorted by `(task_id, run)` so the output does not
+  depend on completion order — `--agent null --jobs 8` writes the same `results.csv` as
+  `--jobs 1`. `meta.json` records `jobs`; above 1 the report withholds per-run wall clock,
+  which under contention measures queueing, and the disk floor rises by 0.5 GB per extra job.
+  Concurrency against the real agent has not been validated yet (B5 in
+  `docs/plan-v0.2-hardening.md`): keep `--jobs 1` for a published number until it is.
+- Exponential backoff on transient provider failures (rate limit, timeout, connection reset,
+  5xx) inside the HelioAI adapter, layered over the token meter. Each retry is recorded as a
+  `retry` event and reported as `Provider retries`; a `BadRequestError` is never retried.
 - `heliobench compare <run A> <run B>`: exact paired McNemar between two runs, under both
   `pass^k` and majority collapsing, with the tasks that moved. Refuses when the two
   `task_set_digest` differ. Every paired comparison before this was a hand-run scratch script.

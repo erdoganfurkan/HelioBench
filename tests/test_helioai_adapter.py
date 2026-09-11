@@ -187,6 +187,19 @@ def test_a_disk_too_small_for_the_sweep_is_a_preflight_problem(tmp_path, monkeyp
     assert problem and "0.4 GB free" in problem
 
 
+def test_the_disk_floor_rises_with_concurrency(tmp_path, monkeypatch):
+    # Each concurrent job seeds its own workspace at the same moment: 2 GB is enough for one
+    # job and not for eight.
+    import shutil as _shutil
+
+    monkeypatch.setattr(
+        _shutil, "disk_usage", lambda p: _shutil._ntuple_diskusage(100, 99, int(3.0e9))
+    )
+    assert low_disk(tmp_path, jobs=1) is None
+    problem = low_disk(tmp_path, jobs=8)
+    assert problem and "5.5 GB at jobs=8" in problem
+
+
 def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
     # The seam the rank metric rests on: what the model was shown, recorded verbatim, with
     # the registry left exactly as it was found.

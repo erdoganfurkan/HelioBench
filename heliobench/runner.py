@@ -78,6 +78,42 @@ async def run_once(agent, task: Task, workdir: Path, fixtures: Path) -> Trace:
     return await agent.run(task.prompt, workdir, task_id=task.id, **kwargs)
 
 
+async def _one(agent, task: Task, i: int, scratch: Path, fixtures: Path, out_dir: Path) -> dict:
+    """One repetition, end to end: run, catch, write the trace, grade."""
+    workdir = scratch / f"{task.id}_{i}"
+    try:
+        trace = await run_once(agent, task, workdir, fixtures)
+    except Exception as e:
+        trace = Trace(
+            task_id=task.id,
+            prompt=task.prompt,
+            agent=getattr(agent, "name", "?"),
+            error=f"{type(e).__name__}: {e}",
+        )
+    trace.write(out_dir / "traces" / f"{task.id}.{i}.json")
+    return make_record(task, trace, i)
+
+
+async def _sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event) -> list[dict]:
+    """Every repetition of every task, at most `jobs` in flight, in a deterministic order.
+
+    The order of *completion* depends on the machine; the order of *records* must not. Rows
+    are sorted by `(task_id, run)` before they are returned, so two sweeps with different
+    `jobs` write the same `results.json` apart from the timing fields.
+    """
+    gate = asyncio.Semaphore(jobs)
+
+    async def guarded(task, i):
+        async with gate:
+            record = await _one(agent, task, i, scratch, fixtures, out_dir)
+        if on_event:
+            on_event(record)
+        return record
+
+    records = await asyncio.gather(*(guarded(t, i) for t in tasks for i in range(runs)))
+    return sorted(records, key=lambda r: (r["task_id"], r["run"]))
+
+
 def run(
     agent,
     tasks: list[Task],
@@ -87,41 +123,32 @@ def run(
     fixtures: Path = Path("fixtures"),
     scratch: Path | None = None,
     on_event=None,
+    jobs: int = 1,
 ) -> dict:
     """Execute every task `runs` times, grade each, and write the run directory.
 
     A run that raises is recorded as a failed trace rather than aborting the sweep: losing
     forty finished tasks to the forty-first is how a benchmark becomes something nobody runs.
+
+    `jobs` bounds how many repetitions are in flight at once. It defaults to one because
+    concurrency destroys the per-run wall clock as a diagnostic and multiplies every transport
+    failure — which is why failure accounting shipped before this did.
     """
+    if jobs < 1:
+        raise ValueError(f"jobs must be at least 1, got {jobs}")
     out_dir = Path(out_dir)
     (out_dir / "traces").mkdir(parents=True, exist_ok=True)
     scratch = Path(scratch or out_dir / "scratch")
-    records: list[dict] = []
     started = time.time()
 
-    for task in tasks:
-        for i in range(runs):
-            workdir = scratch / f"{task.id}_{i}"
-            try:
-                trace = asyncio.run(run_once(agent, task, workdir, fixtures))
-            except Exception as e:
-                trace = Trace(
-                    task_id=task.id,
-                    prompt=task.prompt,
-                    agent=getattr(agent, "name", "?"),
-                    error=f"{type(e).__name__}: {e}",
-                )
-            trace.write(out_dir / "traces" / f"{task.id}.{i}.json")
-            record = make_record(task, trace, i)
-            records.append(record)
-            if on_event:
-                on_event(record)
+    records = asyncio.run(_sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event))
 
     meta = {
         "heliobench": __version__,
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
         "elapsed_s": round(time.time() - started, 1),
         "runs": runs,
+        "jobs": jobs,
         "n_tasks": len(tasks),
         "task_set_digest": task_set_digest(tasks),
         "platform": platform.platform(),

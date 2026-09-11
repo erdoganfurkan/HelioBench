@@ -46,6 +46,7 @@ def _totals(records: list[dict]) -> dict:
     keys = (
         "tool_calls",
         "tool_errors",
+        "retries",
         "invented_ids",
         "recipes_bypassed",
         "contradicted",
@@ -113,6 +114,7 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| Search index | `{agent.get('index_dir', 'n/a')}` ({agent.get('index_size', 'n/a')} products) |",
         f"| Task set | {meta.get('n_tasks')} tasks, digest `{meta.get('task_set_digest')}` |",
         f"| Repetitions | {meta.get('runs')} |",
+        f"| Concurrency | {meta.get('jobs', 1)} |",
         f"| Harness | heliobench {meta.get('heliobench')} on Python {meta.get('python')} |",
         f"| Elapsed | {meta.get('elapsed_s')} s |",
         "",
@@ -144,6 +146,11 @@ def build(meta: dict, records: list[dict]) -> str:
 
     t = _totals(records)
     cost_note = "" if t["tokens_exact"] else " ⚠️ not exact"
+    jobs = int(meta.get("jobs", 1))
+    # Under contention the per-run wall clock measures queueing, not the agent. It was used
+    # once to detect a machine suspend mid-sweep, and a figure that silently stopped meaning
+    # that would be worse than no figure.
+    wall_per_run = f"{t['wall_s'] / max(t['runs'], 1):.1f} s" if jobs == 1 else f"— (jobs={jobs})"
     lines += [
         "",
         "The interval is bootstrapped over events, not tasks: several questions about one",
@@ -167,6 +174,7 @@ def build(meta: dict, records: list[dict]) -> str:
         "|---|---|---|",
         f"| Tool calls | {t['tool_calls']} | {t['tool_calls'] / max(t['runs'], 1):.1f} |",
         f"| Tool errors | {t['tool_errors']} | {t['tool_errors'] / max(t['runs'], 1):.2f} |",
+        f"| Provider retries | {t['retries']} | {t['retries'] / max(t['runs'], 1):.2f} |",
         f"| LLM turns | {t['n_iterations']} | {t['n_iterations'] / max(t['runs'], 1):.1f} |",
         f"| Invented identifiers | {t['invented_ids']} | {t['invented_ids'] / max(t['runs'], 1):.2f} |",
         f"| Recipes bypassed | {t['recipes_bypassed']} | {t['recipes_bypassed'] / max(t['runs'], 1):.2f} |",
@@ -175,7 +183,7 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| Ledger entries | {t['ledger_entries']} | {t['ledger_entries'] / max(t['runs'], 1):.1f} |",
         f"| Prompt tokens{cost_note} | {t['tokens_prompt']} | {t['tokens_prompt'] / max(t['runs'], 1):.0f} |",
         f"| Completion tokens{cost_note} | {t['tokens_completion']} | {t['tokens_completion'] / max(t['runs'], 1):.0f} |",
-        f"| Wall clock | {t['wall_s']} s | {t['wall_s'] / max(t['runs'], 1):.1f} s |",
+        f"| Wall clock | {t['wall_s']} s | {wall_per_run} |",
         "",
     ]
     lines += _retrieval_lines(records)
