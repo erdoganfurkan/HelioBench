@@ -23,6 +23,16 @@ the reasoning behind each item below; this file is just the trackable slice of i
       (2026-08-25)
 - [ ] v0.1 release (not yet released — see `CHANGELOG.md` `[Unreleased]`)
 
+## Planned, written up separately
+
+- [ ] `docs/plan-v0.2-hardening.md` — the ordered plan for the next release: failure accounting
+      (`errored` distinct from `failed`), `--jobs` parallelism, n3 beyond one event, the
+      correctness debt below, and tagging/publishing. Read it before picking up anything in the
+      backlog — several backlog items are folded into it with an order and a reason.
+- [ ] `docs/plan-generic-harness.md` — thinking document: how much of this harness is actually
+      about heliophysics, and whether the domain-agnostic remainder is worth extracting.
+      Nothing committed to; stage 0 is finishing the plan above.
+
 ## Toward a benchmark paper
 - [ ] Scale: 47 tasks / 18 event clusters → ~250 tasks / ≥100 independent events
 - [ ] Independence: task authors who aren't the agent's author (PyHC pool), ≥3 external agent
@@ -53,6 +63,18 @@ the reasoning behind each item below; this file is just the trackable slice of i
 - [ ] `helioai.py:_TOOL_OUTPUT_LIMIT = 4000` truncates tool output, so an accepted id beyond
       the cut is read as "never returned" and corrupts the n1 rank metric. The `truncated`
       flag is recorded but not read by the grader or the report — surface it explicitly.
+- [ ] The n3 gate fires on correct answers when a ledger entry holds a *vector*.
+      `provenance_check._NAME_WINDOW` attributes any number within 40 characters of a ledger
+      name to that entry, so a component or a magnitude reads as contradicting the vector's
+      scalar summary. Seen three times across five arms, always on `n3_theta_bn`:
+      `-0.657` vs `shock_normal_gsm`, `161 km/s` vs `shock_speed_km_s`, and `9.68 nT` /
+      `24.97 nT` vs `B_up_gsm`. Costs about one run a sweep, at the gate, on right answers.
+      Fixed in HelioAI, but the harness reads the agent's own counter — see the next item.
+- [ ] Recompute provenance harness-side rather than trusting `collect(trace).contradicted`
+      (`graders/__init__.py:65`). The one hard gate is currently a number the agent under
+      test computes about itself: loosening its own detector would pass the gate unnoticed.
+      The 2026-08-25 `_MIN_BARE_INT` change was legitimate and checkable in the traces, which
+      is exactly why the general case is not.
 - [ ] `stats.py:mcnemar` is implemented but has no CLI surface. Add
       `heliobench compare <runA> <runB>` (refusing when `task_set_digest` differs).
 - [ ] `numeric.py` folds unit spellings but never scales (nT ↔ pT): deliberate and
