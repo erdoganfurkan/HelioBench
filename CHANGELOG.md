@@ -6,7 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `heliobench compare <run A> <run B>`: exact paired McNemar between two runs, under both
+  `pass^k` and majority collapsing, with the tasks that moved. Refuses when the two
+  `task_set_digest` differ. Every paired comparison before this was a hand-run scratch script.
+
 ### Changed
+- `--provider` on the CLI defaults to `azure`, as the HelioAI adapter already did; a run
+  launched without the flag used to land on groq.
 - A run the provider or the network lost is `errored`, not `failed`. `results.json` and
   `results.csv` carry `outcome` ∈ {passed, failed, errored} beside the boolean; errored runs
   leave every denominator, a task whose every repetition errored is unscored, and a tier with

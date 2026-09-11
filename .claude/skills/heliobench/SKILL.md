@@ -1,7 +1,7 @@
 ---
 name: heliobench
 description: Run the HelioBench benchmark against a heliophysics agent and explain the results. Use when asked to benchmark an agent, score HelioAI, compare two agents or two versions, check for a regression, or read an existing benchmark report.
-argument-hint: "[verify|run|report] [--agent helioai|null] [--tier n1|n2|n3]"
+argument-hint: "[verify|run|report|compare] [--agent helioai|null] [--tier n1|n2|n3]"
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/heliobench.sh *), Read, Glob, Grep
 model: sonnet
 ---
@@ -69,9 +69,15 @@ Only compare runs whose `task_set_digest` matches in `meta.json`. Different dige
 different questions were asked, and the numbers are not comparable — say so rather than
 comparing them anyway.
 
-For two arms over the same tasks, the paired McNemar test in `heliobench/stats.py` is the
-right comparison. Overlapping confidence intervals are **not** evidence of no difference when
-the arms answered the same questions.
+For two arms over the same tasks, run the paired test rather than reading the intervals:
+
+```
+${CLAUDE_SKILL_DIR}/scripts/heliobench.sh compare results/<run A> results/<run B>
+```
+
+It refuses mismatched digests, drops errored repetitions, and prints McNemar's p under both
+`pass^k` and majority collapsing, with the tasks that moved. Overlapping confidence intervals
+are **not** evidence of no difference when the arms answered the same questions.
 
 ## What this benchmark does not claim
 

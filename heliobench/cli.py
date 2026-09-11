@@ -138,6 +138,19 @@ def _cmd_report(args) -> int:
     return 0
 
 
+def _cmd_compare(args) -> int:
+    from heliobench.compare import CompareError, compare, load_run, render
+
+    a, b = load_run(Path(args.run_a)), load_run(Path(args.run_b))
+    try:
+        result = compare(a, b)
+    except CompareError as e:
+        print(f"refusing to compare: {e}", file=sys.stderr)
+        return 1
+    print(render(result, a[0], b[0], Path(args.run_a).name, Path(args.run_b).name), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="heliobench", description=__doc__.splitlines()[0])
     p.add_argument("--version", action="version", version=f"heliobench {__version__}")
@@ -204,6 +217,16 @@ def build_parser() -> argparse.ArgumentParser:
         "Costs nothing: graders read traces, never the agent.",
     )
     rep.set_defaults(func=_cmd_report)
+
+    cmp_p = sub.add_parser(
+        "compare",
+        help="paired McNemar between two runs of the same task set",
+        description="Refuses when the two runs' task_set_digest differ: different questions "
+        "were asked, and the scores do not compare.",
+    )
+    cmp_p.add_argument("run_a", help="directory of the first run")
+    cmp_p.add_argument("run_b", help="directory of the second run")
+    cmp_p.set_defaults(func=_cmd_compare)
 
     return p
 
