@@ -68,6 +68,16 @@ search index makes fabrication look flawless — and `verify` is what catches th
 A full run is 47 tasks x 3 repetitions = 141 agent runs against a paid provider. `--agent
 null` and `--task <id>` are the cheap ways to exercise the machinery.
 
+Two runs of the same task set compare the paired way:
+
+```bash
+heliobench compare results/<run A> results/<run B>
+```
+
+It prints an exact McNemar test under two collapsings of the repetitions (`pass^k` and
+majority) and the tasks that moved, and refuses when the two `task_set_digest` differ —
+different digests mean different questions were asked.
+
 To benchmark a **specific commit** of HelioAI rather than whatever `helioai-agent` happens to
 be installed, pass `--agent-ref` (a branch, tag or commit SHA). It builds an isolated venv
 for that commit once and runs against it:

@@ -23,9 +23,12 @@ from __future__ import annotations
 import os
 import shutil
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
+from heliobench.retry import attach_backoff
 from heliobench.trace import Trace
 from heliobench.usage import attach_token_meter
 
@@ -40,9 +43,65 @@ _MODEL_ENV = {
 
 _TOOL_OUTPUT_LIMIT = 4000
 
+# The recorder of the run whose task is executing, or None outside any run. HelioAI keeps its
+# own per-session state (`helioai.workspace`) in context variables for the same reason: with
+# `--jobs` above one every run shares the process, and the asyncio task context is the only
+# thing that tells one run's tool call from another's.
+_RECORDER: ContextVar[Callable[[str, dict | None, str], None] | None] = ContextVar(
+    "heliobench_tool_recorder", default=None
+)
+
+
+class _ToolOutputDispatcher:
+    """One wrapper on the registry for every run in flight, each writing to its own trace.
+
+    The first version of the recorder wrapped `registry.call_tool` per run and put the
+    original back on exit. The registry is a module-level singleton, so two concurrent runs
+    nested their wrappers, both traces received both runs' tool output, and the first run to
+    finish unwrapped the second — which then recorded nothing. That corrupted exactly the
+    events the n1 rank and truncation metrics read. The wrapper is now installed once, by the
+    first run to start, and dispatches to whichever recorder the current task context holds;
+    the last run to finish removes it, so the registry is left as it was found.
+    """
+
+    def __init__(self) -> None:
+        self._original = None
+        self._had_own = False
+        self._active = 0
+
+    def acquire(self, registry) -> None:
+        if self._active == 0:
+            original = registry.call_tool
+
+            async def dispatching(name, arguments=None, **kwargs):
+                result = await original(name, arguments, **kwargs)
+                record = _RECORDER.get()
+                if record is not None:
+                    record(name, arguments, result)
+                return result
+
+            # `call_tool` is normally the class's method reached through the instance; putting
+            # a bound method back into the instance dict would work and would not be "as found".
+            self._had_own = "call_tool" in vars(registry)
+            self._original = original
+            registry.call_tool = dispatching
+        self._active += 1
+
+    def release(self, registry) -> None:
+        self._active -= 1
+        if self._active == 0:
+            if self._had_own:
+                registry.call_tool = self._original
+            else:
+                del registry.call_tool
+            self._original = None
+
+
+_DISPATCHER = _ToolOutputDispatcher()
+
 
 @contextmanager
-def _recording_tool_output(trace: Trace, t0: float):
+def _recording_tool_output(trace: Trace, t0: float, registry=None):
     """Append what each tool actually returned to the trace, which HelioAI's events elide.
 
     A `tool_result` event carries a summary: five products found by `search_parameters`
@@ -53,14 +112,16 @@ def _recording_tool_output(trace: Trace, t0: float):
 
     The registry is the seam, for the same reason the token meter wraps the SDK client: it
     returns the exact string the model was shown, so nothing in the agent is patched and
-    nothing about the run changes.
+    nothing about the run changes. It is HelioAI's singleton unless a test passes its own:
+    CI installs no agent, and the concurrency this guards against must be tested there.
+
+    Must be entered inside the task that will run the agent, so the recorder lands in that
+    task's context and nowhere else.
     """
-    from helioai.tools.registry import registry
+    if registry is None:
+        from helioai.tools.registry import registry
 
-    original = registry.call_tool
-
-    async def recording(name, arguments=None, **kwargs):
-        result = await original(name, arguments, **kwargs)
+    def record(name: str, arguments: dict | None, result) -> None:
         text = result if isinstance(result, str) else str(result)
         trace.events.append(
             {
@@ -74,16 +135,17 @@ def _recording_tool_output(trace: Trace, t0: float):
                 "t": round(time.monotonic() - t0, 3),
             }
         )
-        return result
 
-    registry.call_tool = recording
+    _DISPATCHER.acquire(registry)
+    token = _RECORDER.set(record)
     try:
         yield
     finally:
-        registry.call_tool = original
+        _RECORDER.reset(token)
+        _DISPATCHER.release(registry)
 
 
-def low_disk(where: Path, need_gb: float = 2.0) -> str | None:
+def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     """Complain when the agent has too little room to write, or None when it has enough.
 
     A sweep that fills the disk dies mid-flight with the quota already spent, and it does not
@@ -91,15 +153,19 @@ def low_disk(where: Path, need_gb: float = 2.0) -> str | None:
     from anything about storage. HelioAI seeds each session's workspace from the speasy
     inventory — measured at ~37 MB for a session that loads data and a few kilobytes for one
     that does not — so a full sweep needs room for a workspace per run, over a gigabyte.
+
+    Each concurrent job seeds its own workspace at the same time, so the floor rises by half
+    a gigabyte per job beyond the first.
     """
     where = Path(where)
+    need_gb = need_gb + 0.5 * max(jobs - 1, 0)
     probe = where if where.exists() else where.parent
     free_gb = shutil.disk_usage(probe).free / 1e9
     if free_gb >= need_gb:
         return None
     return (
         f"{free_gb:.1f} GB free where the agent writes ({where}) — a sweep seeds a workspace "
-        f"per run and needs more than {need_gb:.0f} GB"
+        f"per run and needs more than {need_gb:.1f} GB at jobs={jobs}"
     )
 
 
@@ -126,6 +192,7 @@ class HelioAIAgent:
         index_dir: Path | None = None,
         restricted: bool = True,
         user_id: str = "heliobench",
+        jobs: int = 1,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.provider = provider
@@ -133,6 +200,7 @@ class HelioAIAgent:
         self.index_dir = Path(index_dir) if index_dir else None
         self.restricted = restricted
         self.user_id = user_id
+        self.jobs = jobs
         self._imported = False
 
     def _pin_env(self) -> None:
@@ -208,7 +276,7 @@ class HelioAIAgent:
         elif n == 0:
             problems.append("the Chroma index is empty — invented ids would score as valid")
 
-        low = low_disk(self.data_dir)
+        low = low_disk(self.data_dir, jobs=self.jobs)
         if low:
             problems.append(low)
 
@@ -270,6 +338,7 @@ class HelioAIAgent:
         meter = attach_token_meter(llm)
 
         t0 = time.monotonic()
+        attach_backoff(llm, trace, t0)
         try:
             from helioai.core.agent_loop import stream_chat
 

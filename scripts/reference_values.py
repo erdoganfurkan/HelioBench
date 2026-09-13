@@ -1,77 +1,81 @@
-"""Derive tier-n3 ground truth from the frozen fixture, using the shipped recipe functions.
+"""Derive tier-n3 ground truth from a frozen fixture, using the frozen recipe functions.
 
 The truth is computed from the fixture, not from a catalogue. That is deliberate: a catalogue
 value depends on whoever produced it and on which method they used, while a number derived
 from frozen bytes by a named method is reproducible by anyone, forever, and disagreeing with
 it is a disagreement about arithmetic rather than about physics.
 
-The recipes are exec'd rather than imported: each ships a runnable tail that calls the
-sandbox's `export`, which does not exist out here. The tails also carry their own assertions
-against archived values, and letting them run is a free check that the recipe still agrees
-with the numbers it was calibrated on.
+Both halves of that claim now live in this repository. The recipes are the byte-for-byte
+copies under `heliobench/recipes/`, hash-checked against the upstream commit they were taken
+from; the windows are `fixtures/<event>/windows.json`, written when the fixture was built.
+Nothing here reaches outside the checkout.
+
+    python scripts/reference_values.py stpatrick_2015            # writes reference.json
+    python scripts/reference_values.py stpatrick_2015 --check    # compares, writes nothing
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURE = REPO / "fixtures" / "stpatrick_2015" / "data"
-RECIPES = Path("/home/furkan/HelioAI/helioai/data/recipes")
+sys.path.insert(0, str(REPO))
 
-# The windows are part of the task statement, not a choice made here. A shock normal computed
-# over an unstated interval is not reproducible, and the spread over plausible intervals is
-# wider than any tolerance worth quoting.
-SHOCK = np.datetime64("2015-03-17T04:00:59")
-UP = (np.datetime64("2015-03-17T03:35:59"), np.datetime64("2015-03-17T03:55:59"))
-DOWN = (np.datetime64("2015-03-17T04:05:59"), np.datetime64("2015-03-17T04:25:59"))
+from heliobench.recipes import namespace  # noqa: E402
+
+FIXTURES = REPO / "fixtures"
 
 
-def load(name: str):
-    d = np.load(FIXTURE / f"{name}.npz")
+def load(fixture: Path, name: str):
+    d = np.load(fixture / "data" / f"{name}.npz")
     return d["time"], d["values"].astype(float)
 
 
-def window_mean(name: str, lo, hi, column: int | None = None) -> float:
-    t, v = load(name)
+def window_mean(fixture: Path, name: str, lo, hi) -> float:
+    t, v = load(fixture, name)
     sel = (t >= lo) & (t <= hi)
-    block = v[sel] if column is None else v[sel, column : column + 1]
-    return float(np.nanmean(block))
+    return float(np.nanmean(v[sel]))
 
 
-def vector_mean(name: str, lo, hi) -> np.ndarray:
-    t, v = load(name)
+def vector_mean(fixture: Path, name: str, lo, hi) -> np.ndarray:
+    t, v = load(fixture, name)
     sel = (t >= lo) & (t <= hi)
     return np.nanmean(v[sel], axis=0)
 
 
-def magnitude_mean(name: str, lo, hi) -> float:
-    t, v = load(name)
+def magnitude_mean(fixture: Path, name: str, lo, hi) -> float:
+    t, v = load(fixture, name)
     sel = (t >= lo) & (t <= hi)
     return float(np.nanmean(np.linalg.norm(v[sel], axis=1)))
 
 
-def recipe(name: str) -> dict:
-    """Execute a shipped recipe and return its namespace, with `export` stubbed out."""
-    ns: dict = {"export": lambda *a, **k: None}
-    exec(compile((RECIPES / f"{name}.py").read_text(), f"{name}.py", "exec"), ns)
-    return ns
+def derive(event: str) -> dict:
+    """Every reference value for one event, from its frozen bytes and stated windows."""
+    fixture = FIXTURES / event
+    win = json.loads((fixture / "windows.json").read_text(encoding="utf-8"))
+    up = tuple(np.datetime64(s) for s in win["upstream"])
+    down = tuple(np.datetime64(s) for s in win["downstream"])
+    field, dens, speed, therm = (
+        win["field"],
+        win["density"],
+        win["speed"],
+        win["thermal_speed"],
+    )
 
+    theta_bn = namespace("theta_bn")["theta_bn"]
+    rh = namespace("rankine_hugoniot")
 
-def main() -> dict:
-    theta_bn = recipe("theta_bn")["theta_bn"]
-    rh = recipe("rankine_hugoniot")
-
-    B_up, B_dn = vector_mean("bgsm", *UP), vector_mean("bgsm", *DOWN)
+    B_up, B_dn = vector_mean(fixture, field, *up), vector_mean(fixture, field, *down)
     tb = theta_bn(B_up, B_dn)
 
-    n_u, n_d = window_mean("proton_np_moment", *UP), window_mean("proton_np_moment", *DOWN)
-    v_u, v_d = window_mean("proton_v_moment", *UP), window_mean("proton_v_moment", *DOWN)
-    w_u, w_d = window_mean("proton_w_moment", *UP), window_mean("proton_w_moment", *DOWN)
-    b_u, b_d = magnitude_mean("bgsm", *UP), magnitude_mean("bgsm", *DOWN)
+    n_u, n_d = window_mean(fixture, dens, *up), window_mean(fixture, dens, *down)
+    v_u, v_d = window_mean(fixture, speed, *up), window_mean(fixture, speed, *down)
+    w_u, w_d = window_mean(fixture, therm, *up), window_mean(fixture, therm, *down)
+    b_u, b_d = magnitude_mean(fixture, field, *up), magnitude_mean(fixture, field, *down)
 
     # Wind SWE reports a thermal speed; the recipe wants a temperature **in eV**. Its own
     # self-check pins the unit: it passes T_u=8.34 for the event the showcase notebook
@@ -86,9 +90,9 @@ def main() -> dict:
 
     out = {
         "windows": {
-            "shock": str(SHOCK),
-            "upstream": [str(UP[0]), str(UP[1])],
-            "downstream": [str(DOWN[0]), str(DOWN[1])],
+            "shock": win["shock"],
+            "upstream": list(win["upstream"]),
+            "downstream": list(win["downstream"]),
         },
         "b_up_nT": round(b_u, 4),
         "b_dn_nT": round(b_d, 4),
@@ -107,12 +111,27 @@ def main() -> dict:
     for k in ("r", "V_shock", "V_A", "M_A", "U_upstream", "r_predicted"):
         if k in jump:
             out[f"rh_{k}"] = round(float(jump[k]), 4)
-
-    path = REPO / "fixtures" / "stpatrick_2015" / "reference.json"
-    path.write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print(json.dumps(out, indent=2))
     return out
 
 
+def main(argv: list[str]) -> int:
+    event = next((a for a in argv if not a.startswith("--")), "stpatrick_2015")
+    out = derive(event)
+    path = FIXTURES / event / "reference.json"
+    if "--check" in argv:
+        stored = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+        if stored == out:
+            print(f"{path} reproduces from the frozen bytes and recipes")
+            return 0
+        print(f"{path} DIFFERS from what the frozen bytes and recipes derive:", file=sys.stderr)
+        for k in sorted(set(stored or {}) | set(out)):
+            if (stored or {}).get(k) != out.get(k):
+                print(f"  {k}: stored {(stored or {}).get(k)!r} derived {out.get(k)!r}")
+        return 1
+    path.write_text(json.dumps(out, indent=2), encoding="utf-8")
+    print(json.dumps(out, indent=2))
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))

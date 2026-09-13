@@ -1,6 +1,10 @@
 # Plan — HelioBench v0.2: trustworthy numbers, faster sweeps, more than one event
 
-**Status:** written 2026-08-28, not started. Companion to `docs/roadmap-paper.md` (which says
+**Status:** written 2026-08-28. On 2026-09-11 sections A, B1–B4, C1–C2, D1–D5 and E1 landed on
+the `v0.2-hardening` branch, one commit each; `CHANGELOG.md [Unreleased]` has the details and
+the before/after regrades. Still open: **B5** (concurrency against the real agent — needs a
+paid run), **C3–C4** (more shock events — needs the network and a licence-checked selection),
+**E2–E4** (publication). Companion to `docs/roadmap-paper.md` (which says
 what a *paper* needs) and `dev/todo.md` (which tracks what is in flight). This file is the
 ordered plan for the next release.
 
@@ -79,7 +83,11 @@ inside the adapter, so a rate limit costs latency rather than an `errored` run. 
 **B5. Confirm the agent is concurrency-safe.** HelioAI keeps a per-`(user_id, session_id)`
 SQLite history in `helioai/core/session.py`, and a sqlite failure has already been observed
 under disk pressure. Before enabling `--jobs > 1` by default, run `--agent null --jobs 8` (free)
-and then a 12-run n2 sweep at `--jobs 4`, and diff the results against `--jobs 1`.
+and then a 12-run n2 sweep at `--jobs 4`, and diff the results against `--jobs 1`. The null
+sweep is not enough on its own: it never reaches the adapter, and the adapter's per-run patch
+of `registry.call_tool` was corrupting concurrent traces while the null check passed (fixed
+2026-09-11, `dev/lessons.md`). Anything the adapter installs on a shared object needs a test
+with two overlapping runs, not one.
 
 **Acceptance:** an n3 sweep at `--jobs 6` finishes in under 20 minutes with the same
 `results.csv` as `--jobs 1`, and zero `errored` runs attributable to concurrency.

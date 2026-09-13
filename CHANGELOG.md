@@ -6,6 +6,71 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- The recipe functions that derive tier-n3 truth are frozen under `heliobench/recipes/`,
+  byte-for-byte from HelioAI at the commits recorded in `MANIFEST`, and hash-checked by a
+  test. `scripts/reference_values.py` used to exec them from an absolute path on one machine,
+  which made "reproducible by anyone, forever" false. `--check` compares the stored
+  `reference.json` with what the frozen bytes derive without writing anything; a test does
+  the same, and another checks every n3 answer key against the derived figure.
+- `fixtures/<event>/windows.json`: the shock time, the averaging windows the frozen
+  `rankine_hugoniot` recipe derives from it, and which saved series is which quantity.
+  Written by `scripts/build_fixture.py`, read by `scripts/reference_values.py`, so a second
+  event is two script runs rather than an edit to either. A test checks that every n3 prompt
+  states the window edges the truth used.
+- `--jobs N` on `run` and `verify`: repetitions in flight at once, default 1. One event loop
+  for the sweep and a semaphore; records are sorted by `(task_id, run)` so the output does not
+  depend on completion order — `--agent null --jobs 8` writes the same `results.csv` as
+  `--jobs 1`. `meta.json` records `jobs`; above 1 the report withholds per-run wall clock,
+  which under contention measures queueing, and the disk floor rises by 0.5 GB per extra job.
+  Concurrency against the real agent has not been validated yet (B5 in
+  `docs/plan-v0.2-hardening.md`): keep `--jobs 1` for a published number until it is.
+- Exponential backoff on transient provider failures (rate limit, timeout, connection reset,
+  5xx) inside the HelioAI adapter, layered over the token meter. Each retry is recorded as a
+  `retry` event and reported as `Provider retries`; a `BadRequestError` is never retried.
+- `heliobench compare <run A> <run B>`: exact paired McNemar between two runs, under both
+  `pass^k` and majority collapsing, with the tasks that moved. Refuses when the two
+  `task_set_digest` differ. Every paired comparison before this was a hand-run scratch script.
+
+### Changed
+- The provenance gate is the harness's verdict, computed in `heliobench/graders/provenance.py`
+  from the ledger and the reply, not the agent's own `contradicted` counter. That counter had
+  fired ten times across the stored sweeps, every time on a correct answer — a vector
+  component, a vector magnitude or a literature value quoted beside the right result. The
+  gate now asks one question of the graded answer: is any accepted value in the ledger, a
+  reconstructed vector component or magnitude, or a difference or ratio of two ledger
+  scalars? If none is and a same-unit ledger scalar sits within a quarter of it, the session
+  computed one number and the reply stated another. Every number in the prose is still
+  classified (matched / derived / unsourced) and reported beside the agent's own count, so a
+  disagreement between the two is visible. Regrading the six August arms moves n3 from
+  86.1–97.2% to 91.7–100%; the gate fires on none of them, the agent's counter on ten.
+- A tier-n1 run whose search output was cut at the trace's 4000-character limit before any
+  accepted id appeared is left out of the rank metric and counted apart, rather than as
+  "never returned". The `truncated` flag was recorded and read by nobody.
+- `--provider` on the CLI defaults to `azure`, as the HelioAI adapter already did; a run
+  launched without the flag used to land on groq.
+- A run the provider or the network lost is `errored`, not `failed`. `results.json` and
+  `results.csv` carry `outcome` ∈ {passed, failed, errored} beside the boolean; errored runs
+  leave every denominator, a task whose every repetition errored is unscored, and a tier with
+  more than 10% of its runs errored is flagged as not comparable. Classification is by
+  exception class in `heliobench/graders/outcome.py` and defaults to the agent's fault: only
+  timeouts, connection failures, rate limits and a full disk are excused. Re-grading the
+  2026-08-25 `1fcb2f0` arm turns 32/36 (88.9%) into 32/34 with 2 errored (93.1%), with no
+  flag passed and no CSV edited.
+
+### Fixed
+- The HelioAI adapter's tool-output recorder wrapped `registry.call_tool` — a module-level
+  singleton — once per run and put the original back on exit. Under `--jobs > 1` the
+  wrappers nested: every trace in flight received every run's tool output, and the first run
+  to finish unwrapped the rest, which then recorded nothing. Those are the events the n1
+  rank, `truncated` and invented-id metrics read. The registry is now wrapped once by the
+  first run to start and dispatches to the recorder held in the current asyncio task context,
+  the same mechanism HelioAI uses for its own per-session state; the last run out restores
+  the class method. Tested against a stand-in registry in CI and through the real
+  `stream_chat` where the agent is installed. `--agent null` could not have shown this: it
+  never touches the registry, so the byte-identical `--jobs 1`/`--jobs 8` check above proved
+  the runner and nothing about the adapter.
+
 ## [0.1.0] — 2026-09-11
 
 The first tagged state. Tagged as it stood so that the August 2026 campaigns

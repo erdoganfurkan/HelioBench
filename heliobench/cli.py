@@ -28,6 +28,7 @@ def _build_agent(args):
             provider=args.provider,
             model=args.model,
             index_dir=Path(args.index_dir) if args.index_dir else None,
+            jobs=getattr(args, "jobs", 1),
         )
     raise SystemExit(f"unknown agent {args.agent!r}")
 
@@ -106,18 +107,29 @@ def _cmd_run(args) -> int:
 
     out_dir = new_run_dir(args.out, agent.name)
     total = len(tasks) * args.runs
-    state = {"n": 0, "ok": 0}
+    state = {"n": 0, "ok": 0, "err": 0}
 
     def progress(record):
         state["n"] += 1
+        errored = record.get("outcome") == "errored"
         state["ok"] += bool(record["passed"])
-        mark = "." if record["passed"] else "x"
+        state["err"] += errored
+        mark = "." if record["passed"] else ("e" if errored else "x")
         end = "\n" if state["n"] % 50 == 0 or state["n"] == total else ""
         print(f"{mark}{end}", end="", flush=True)
 
     print(f"{len(tasks)} tasks x {args.runs} runs -> {out_dir}")
-    run(agent, tasks, out_dir, runs=args.runs, fixtures=Path(args.fixtures), on_event=progress)
-    print(f"\n{state['ok']}/{total} runs passed")
+    run(
+        agent,
+        tasks,
+        out_dir,
+        runs=args.runs,
+        fixtures=Path(args.fixtures),
+        on_event=progress,
+        jobs=args.jobs,
+    )
+    errored = f", {state['err']} errored" if state["err"] else ""
+    print(f"\n{state['ok']}/{total} runs passed{errored}")
     print(f"report: {report_mod.write(out_dir)}")
     return 0
 
@@ -132,6 +144,19 @@ def _cmd_report(args) -> int:
         print(f"re-graded {len(out['records'])} runs over {out['meta']['n_tasks']} tasks")
     path = report_mod.write(run_dir)
     print(path.read_text(encoding="utf-8"))
+    return 0
+
+
+def _cmd_compare(args) -> int:
+    from heliobench.compare import CompareError, compare, load_run, render
+
+    a, b = load_run(Path(args.run_a)), load_run(Path(args.run_b))
+    try:
+        result = compare(a, b)
+    except CompareError as e:
+        print(f"refusing to compare: {e}", file=sys.stderr)
+        return 1
+    print(render(result, a[0], b[0], Path(args.run_a).name, Path(args.run_b).name), end="")
     return 0
 
 
@@ -166,11 +191,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="check out HelioAI at this branch, tag or commit and run against it, in an "
         "isolated venv (requires --agent helioai)",
     )
-    agent_opts.add_argument("--provider", default="groq", help="LLM provider for the agent")
+    # Same default as the adapter's own: a run launched without a flag must land where the
+    # adapter documents it does, or the report header and the CLI disagree about the arm.
+    agent_opts.add_argument("--provider", default="azure", help="LLM provider for the agent")
     agent_opts.add_argument("--model", default=None, help="model id; default is the agent's")
     agent_opts.add_argument("--index-dir", default=None, help="search index the agent must use")
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")
     agent_opts.add_argument("--fixtures", default="fixtures", help="frozen data for tier n3")
+    agent_opts.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="repetitions in flight at once (default 1). Above 1, per-run wall clock measures "
+        "queueing rather than the agent and is not reported; cost stays exact.",
+    )
 
     ls = sub.add_parser("list", parents=[common], help="list the tasks that would run")
     ls.set_defaults(func=_cmd_list)
@@ -199,6 +233,16 @@ def build_parser() -> argparse.ArgumentParser:
         "Costs nothing: graders read traces, never the agent.",
     )
     rep.set_defaults(func=_cmd_report)
+
+    cmp_p = sub.add_parser(
+        "compare",
+        help="paired McNemar between two runs of the same task set",
+        description="Refuses when the two runs' task_set_digest differ: different questions "
+        "were asked, and the scores do not compare.",
+    )
+    cmp_p.add_argument("run_a", help="directory of the first run")
+    cmp_p.add_argument("run_b", help="directory of the second run")
+    cmp_p.set_defaults(func=_cmd_compare)
 
     return p
 

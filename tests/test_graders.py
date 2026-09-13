@@ -134,25 +134,62 @@ def _provenance(**counts):
     return {"event": "provenance", "data": counts}
 
 
+def _ledger(*entries):
+    """A ledger of scalars: (name, value, units)."""
+    return {
+        "values": [
+            {"name": n, "mean": v, "min": v, "max": v, "std": 0.0, "units": u}
+            for n, v, u in entries
+        ]
+    }
+
+
 def test_a_number_the_session_computed_differently_fails_a_numerically_correct_run():
     # The gate: the session computed one number and the answer stated another. Recording
     # that under a passing score is recording that the run passed.
-    r = grade(_N2, _trace("The plasma beta is about 2.52.", events=[_provenance(contradicted=1)]))
+    r = grade(_N2, _trace("The plasma beta is about 2.52.", ledger=_ledger(("beta", 2.61, ""))))
     assert not r.passed
-    assert "contradicted" in r.reason and r.detail["gate"] == "contradicted"
+    assert "contradicts" in r.reason and r.detail["gate"] == "contradicted"
+    assert r.detail["provenance"]["answer_contradicted"][0]["computed"] == 2.61
 
 
-def test_the_gate_reads_only_contradiction():
-    # Bypassed recipes and unsourced figures are read beside the score, not instead of it.
+def test_the_gate_is_the_harness_verdict_not_the_agents():
+    # The agent's own counter said "contradicted" ten times across the stored sweeps, every
+    # time on a correct answer. It is reported beside the score and never gates it.
     trace = _trace(
         "The plasma beta is about 2.52.",
+        events=[_provenance(contradicted=1)],
+        ledger=_ledger(("beta", 2.5167, "")),
+    )
+    r = grade(_N2, trace)
+    assert r.passed and r.detail["provenance"]["answer_sourced"] is True
+    assert collect(trace).contradicted == 1
+
+
+def test_an_answer_the_session_never_computed_is_unsourced_not_contradicted():
+    # No number in the ledger is anywhere near the answer: the session computed something
+    # else entirely. That is reported, not gated.
+    r = grade(_N2, _trace("The plasma beta is about 2.52.", ledger=_ledger(("n_up", 17.7, "cm-3"))))
+    assert r.passed and r.detail["provenance"]["answer_sourced"] is False
+
+
+def test_an_empty_ledger_cannot_contradict_anything():
+    r = grade(_N2, _trace("The plasma beta is about 2.52."))
+    assert r.passed and r.detail["provenance"]["answer_sourced"] is None
+
+
+def test_the_gate_reads_only_the_answer():
+    # Bypassed recipes and unsourced figures are read beside the score, not instead of it.
+    trace = _trace(
+        "The plasma beta is about 2.52. Also 9.99 and 12.3 nT.",
         events=[_provenance(unsourced=3), {"event": "recipe_bypassed", "data": {"recipes": ["r"]}}],
+        ledger=_ledger(("beta", 2.5167, "")),
     )
     assert grade(_N2, trace).passed
 
 
 def test_the_gate_cannot_rescue_a_wrong_number():
-    r = grade(_N2, _trace("The plasma beta is about 4.1.", events=[_provenance(contradicted=1)]))
+    r = grade(_N2, _trace("The plasma beta is about 4.1.", ledger=_ledger(("beta", 4.1, ""))))
     assert not r.passed and "closest" in r.reason
 
 

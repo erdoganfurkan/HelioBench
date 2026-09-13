@@ -39,12 +39,23 @@ an agent that will be wrong next week.
 
 One of them is a gate rather than a note: **a run whose answer contradicts its own provenance
 ledger fails**, however right the number looks. The session computed one value and the reply
-stated another; there is no reading of that where the run passed. The rest — bypassed
-recipes, unsourced figures, tool errors — are reported beside the score.
+stated another; there is no reading of that where the run passed. The verdict is the
+harness's, recomputed from the ledger and the graded answer: the agent's own contradiction
+counter is collected and shown beside it, but a gate the candidate supplies about itself is
+not a gate. The rest — bypassed recipes, unsourced figures, tool errors — are reported beside
+the score.
+
+A run the provider or the network lost is neither. It is **errored**, leaves every
+denominator, and is listed apart; a tier with more than a tenth of its runs errored is
+flagged as not comparable. The default is the agent's fault: only a timeout, a connection
+failure, a rate limit or a full disk is excused, so a new kind of failure cannot launder
+itself into an excuse.
 
 For n1, every run also records the **rank** of the accepted identifier inside what the search
 returned. It separates the two defects a pass rate cannot: an identifier that was never
-retrieved, and one that was retrieved and passed over.
+retrieved, and one that was retrieved and passed over. A run whose search output was cut at
+the trace's limit before any accepted identifier appeared is counted apart, not as never
+retrieved: the agent saw what we did not keep.
 
 ## When the benchmark is the thing that is wrong
 

@@ -12,16 +12,32 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from heliobench.graders.outcome import ERRORED, PASSED
 from heliobench.stats import summarise
 
 
+def outcome_of(record: dict) -> bool | None:
+    """The three-way verdict of a stored record: True, False, or None for errored.
+
+    Records written before `outcome` existed carry only the boolean, and are read as it
+    says: a re-grade rewrites them with the field, and until then a stored error stays a
+    failure rather than being guessed at.
+    """
+    out = record.get("outcome")
+    if out == ERRORED:
+        return None
+    if out is not None:
+        return out == PASSED
+    return bool(record["passed"])
+
+
 def _by_task(records: list[dict], tier: str | None = None) -> tuple[dict, dict]:
-    per_task: dict[str, list[bool]] = defaultdict(list)
+    per_task: dict[str, list[bool | None]] = defaultdict(list)
     events: dict[str, str] = {}
     for r in records:
         if tier and r["tier"] != tier:
             continue
-        per_task[r["task_id"]].append(bool(r["passed"]))
+        per_task[r["task_id"]].append(outcome_of(r))
         events[r["task_id"]] = r["event"]
     return per_task, events
 
@@ -30,10 +46,14 @@ def _totals(records: list[dict]) -> dict:
     keys = (
         "tool_calls",
         "tool_errors",
+        "retries",
         "invented_ids",
         "recipes_bypassed",
         "contradicted",
         "unsourced",
+        "harness_matched",
+        "harness_derived",
+        "harness_unsourced",
         "ledger_entries",
         "n_iterations",
         "tokens_prompt",
@@ -44,6 +64,7 @@ def _totals(records: list[dict]) -> dict:
     out["runs"] = len(records)
     out["tokens_exact"] = all(r["metrics"].get("tokens_exact", True) for r in records)
     out["provenance_reported"] = sum(1 for r in records if r["metrics"].get("provenance_reported"))
+    out["gated"] = sum(1 for r in records if (r.get("detail") or {}).get("gate") == "contradicted")
     return out
 
 
@@ -59,8 +80,20 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
     measured = [r for r in records if r["tier"] == "n1" and (r.get("detail") or {}).get("searched")]
     if not measured:
         return []
-    ranks = [(r.get("detail") or {}).get("rank") for r in measured]
+    # A run whose search output was cut at the adapter's limit and whose accepted id was not
+    # in the kept part is not a "never returned": the id may have been past the cut. Such runs
+    # are counted, not ranked. A run where the id *was* found before the cut is ranked as
+    # usual — the cut cannot have moved it.
+    truncated_unranked = [
+        r
+        for r in measured
+        if (r.get("detail") or {}).get("truncated") and not (r.get("detail") or {}).get("rank")
+    ]
+    ranked = [r for r in measured if r not in truncated_unranked]
+    ranks = [(r.get("detail") or {}).get("rank") for r in ranked]
     n = len(ranks)
+    if not n:
+        return []
 
     def recall_at(k: int) -> float:
         return sum(1 for x in ranks if x and x <= k) / n
@@ -69,14 +102,16 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
     return [
         "## Retrieval (n1)",
         "",
-        "| Runs measured | MRR | recall@1 | recall@3 | recall@5 | never returned |",
-        "|---|---|---|---|---|---|",
+        "| Runs measured | MRR | recall@1 | recall@3 | recall@5 | never returned | truncated, unranked |",
+        "|---|---|---|---|---|---|---|",
         f"| {n} | {mrr:.3f} | {recall_at(1):.1%} | {recall_at(3):.1%} | {recall_at(5):.1%} | "
-        f"{sum(1 for x in ranks if not x)} |",
+        f"{sum(1 for x in ranks if not x)} | {len(truncated_unranked)} |",
         "",
         "Rank of the first accepted identifier inside what the search tools returned, in the",
         "order the agent was shown them. It splits a wrong answer into the two defects that",
-        "look identical in the pass rate: never retrieved, or retrieved and passed over.",
+        "look identical in the pass rate: never retrieved, or retrieved and passed over. A run",
+        "whose search output was cut at the trace's 4000-character limit before any accepted",
+        "id appeared is left out of the rank rather than counted as never returned.",
         "",
     ]
 
@@ -97,58 +132,99 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| Search index | `{agent.get('index_dir', 'n/a')}` ({agent.get('index_size', 'n/a')} products) |",
         f"| Task set | {meta.get('n_tasks')} tasks, digest `{meta.get('task_set_digest')}` |",
         f"| Repetitions | {meta.get('runs')} |",
+        f"| Concurrency | {meta.get('jobs', 1)} |",
         f"| Harness | heliobench {meta.get('heliobench')} on Python {meta.get('python')} |",
         f"| Elapsed | {meta.get('elapsed_s')} s |",
         "",
         "## Score",
         "",
-        "| Tier | Tasks | Events | Mean | 95% CI | pass^k | pass≥1 |",
-        "|---|---|---|---|---|---|---|",
+        "| Tier | Tasks | Events | Mean | 95% CI | pass^k | pass≥1 | Errored |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     if agent_ref:
         lines.insert(6, f"| Agent ref | `{agent_ref}` |")
     runs = int(meta.get("runs", 1))
+    not_comparable: list[str] = []
     for tier in ("n1", "n2", "n3", None):
         per_task, events = _by_task(records, tier)
         if not per_task:
             continue
         s = summarise(per_task, events, runs)
         label = tier or "**all**"
+        errored = str(s.n_errored)
+        if s.n_unscored:
+            errored += f" ({s.n_unscored} task(s) unscored)"
+        if not s.comparable:
+            errored += " ⚠️"
+            not_comparable.append(label)
         lines.append(
             f"| {label} | {s.n_tasks} | {s.n_events} | {s.mean:.1%} | "
-            f"[{s.ci[0]:.1%}, {s.ci[1]:.1%}] | {s.pass_k:.1%} | {s.pass_any:.1%} |"
+            f"[{s.ci[0]:.1%}, {s.ci[1]:.1%}] | {s.pass_k:.1%} | {s.pass_any:.1%} | {errored} |"
         )
 
     t = _totals(records)
     cost_note = "" if t["tokens_exact"] else " ⚠️ not exact"
+    jobs = int(meta.get("jobs", 1))
+    # Under contention the per-run wall clock measures queueing, not the agent. It was used
+    # once to detect a machine suspend mid-sweep, and a figure that silently stopped meaning
+    # that would be worse than no figure.
+    wall_per_run = f"{t['wall_s'] / max(t['runs'], 1):.1f} s" if jobs == 1 else f"— (jobs={jobs})"
     lines += [
         "",
         "The interval is bootstrapped over events, not tasks: several questions about one",
         "event are several looks at the same event. `pass^k` is the fraction passing on every",
-        "repetition — the gap to `pass≥1` is how much of the score is luck.",
+        "repetition — the gap to `pass≥1` is how much of the score is luck. An errored run is",
+        "one the provider or the network lost; it leaves every denominator, and a task whose",
+        "every repetition errored is unscored rather than failed.",
         "",
+    ]
+    if not_comparable:
+        lines += [
+            f"⚠️ **Not comparable:** {', '.join(not_comparable)} — more than 10% of the runs",
+            "errored. A score with that much of the sweep missing cannot be quoted against",
+            "another arm; re-run the errored tasks first.",
+            "",
+        ]
+    lines += [
         "## Process",
         "",
         "| Metric | Total | Per run |",
         "|---|---|---|",
         f"| Tool calls | {t['tool_calls']} | {t['tool_calls'] / max(t['runs'], 1):.1f} |",
         f"| Tool errors | {t['tool_errors']} | {t['tool_errors'] / max(t['runs'], 1):.2f} |",
+        f"| Provider retries | {t['retries']} | {t['retries'] / max(t['runs'], 1):.2f} |",
         f"| LLM turns | {t['n_iterations']} | {t['n_iterations'] / max(t['runs'], 1):.1f} |",
         f"| Invented identifiers | {t['invented_ids']} | {t['invented_ids'] / max(t['runs'], 1):.2f} |",
         f"| Recipes bypassed | {t['recipes_bypassed']} | {t['recipes_bypassed'] / max(t['runs'], 1):.2f} |",
-        f"| Numbers contradicted by the ledger | {t['contradicted']} | — |",
-        f"| Numbers no computation produced | {t['unsourced']} | — |",
+        f"| Answers contradicting the ledger (gate) | {t['gated']} | — |",
+        f"| Numbers contradicted, by the agent's own count | {t['contradicted']} | — |",
+        f"| Numbers no computation produced, by the agent's count | {t['unsourced']} | — |",
+        f"| Numbers no computation produced, by the harness | {t['harness_unsourced']} | — |",
+        f"| Numbers the harness sourced from the ledger | {t['harness_matched'] + t['harness_derived']} | — |",
         f"| Ledger entries | {t['ledger_entries']} | {t['ledger_entries'] / max(t['runs'], 1):.1f} |",
         f"| Prompt tokens{cost_note} | {t['tokens_prompt']} | {t['tokens_prompt'] / max(t['runs'], 1):.0f} |",
         f"| Completion tokens{cost_note} | {t['tokens_completion']} | {t['tokens_completion'] / max(t['runs'], 1):.0f} |",
-        f"| Wall clock | {t['wall_s']} s | {t['wall_s'] / max(t['runs'], 1):.1f} s |",
+        f"| Wall clock | {t['wall_s']} s | {wall_per_run} |",
         "",
     ]
     lines += _retrieval_lines(records)
+    errored = [r for r in records if outcome_of(r) is None]
+    if errored:
+        lines += [
+            "## Errored",
+            "",
+            "Runs the infrastructure lost, not the agent. Excluded from every score above.",
+            "",
+            "| Task | Run | Error |",
+            "|---|---|---|",
+        ]
+        for r in sorted(errored, key=lambda r: (r["task_id"], r["run"])):
+            lines.append(f"| `{r['task_id']}` | {r['run']} | {(r['reason'] or '?')[:90]} |")
+        lines.append("")
     lines += ["## Failures", ""]
     failed = defaultdict(list)
     for r in records:
-        if not r["passed"]:
+        if outcome_of(r) is False:
             failed[r["task_id"]].append(r["reason"] or "?")
     if not failed:
         lines.append("None.")
@@ -170,7 +246,17 @@ def write(out_dir: Path) -> Path:
 
     with (out_dir / "results.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["task_id", "tier", "event", "run", "passed", "reason"])
+        w.writerow(["task_id", "tier", "event", "run", "passed", "outcome", "reason"])
         for r in records:
-            w.writerow([r["task_id"], r["tier"], r["event"], r["run"], r["passed"], r["reason"]])
+            w.writerow(
+                [
+                    r["task_id"],
+                    r["tier"],
+                    r["event"],
+                    r["run"],
+                    r["passed"],
+                    r.get("outcome", PASSED if r["passed"] else "failed"),
+                    r["reason"],
+                ]
+            )
     return md

@@ -112,6 +112,23 @@ def test_runs_recorded_before_tool_output_was_kept_are_left_out_of_the_rank():
     assert "## Retrieval (n1)" not in md
 
 
+def test_a_truncated_search_output_with_no_rank_is_not_counted_as_never_returned():
+    # The accepted id may have been past the 4000-character cut: shown to the agent, not to
+    # us. Such a run is counted apart, not as a retrieval failure.
+    cut = _n1_record(None, passed=False)
+    cut["detail"]["truncated"] = True
+    md = report.build({"runs": 1}, [_n1_record(1), cut])
+    assert "| 1 | 1.000 | 100.0% |" in md
+    assert "| 0 | 1 |" in md  # never returned 0, truncated-unranked 1
+
+
+def test_a_rank_found_before_the_cut_is_kept_even_when_the_output_was_truncated():
+    found = _n1_record(2)
+    found["detail"]["truncated"] = True
+    md = report.build({"runs": 1}, [found])
+    assert "| 1 | 0.500 |" in md
+
+
 def test_regrading_a_stored_run_follows_a_corrected_answer_key(tmp_path):
     # The property the whole re-grade exists for: a key that was wrong when the run happened
     # gives a different verdict afterwards, from the stored trace alone and without an agent.

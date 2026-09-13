@@ -1,0 +1,16 @@
+{
+  "shock": "2015-03-17T04:00:59",
+  "upstream": [
+    "2015-03-17T03:35:59",
+    "2015-03-17T03:55:59"
+  ],
+  "downstream": [
+    "2015-03-17T04:05:59",
+    "2015-03-17T04:25:59"
+  ],
+  "field": "bgsm",
+  "density": "proton_np_moment",
+  "speed": "proton_v_moment",
+  "thermal_speed": "proton_w_moment",
+  "note": "Windows are shock_windows(shock) from the frozen rankine_hugoniot recipe: guard 5 min, span 20 min. They are part of every n3 prompt for this event; changing them here without changing the prompts derives a truth for a question nobody asked."
+}

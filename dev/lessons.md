@@ -78,3 +78,40 @@ imported the installed agent and found no harness on `sys.path`. | `os.execv` do
 environment; `os.execve` does. When the whole point of re-executing is a modified environment,
 pass it explicitly — and lock it with a test that monkeypatches `os.execve` and asserts on the
 captured env, not just on the code that built it.
+
+`2026-09-11` | The one hard gate read `collect(trace).contradicted`, a counter the agent under
+test computed about itself. Checked against the 236 stored n3 traces it had fired ten times,
+every one on a correct answer — a vector component read against the vector's scalar summary,
+a magnitude read against its components, a literature value quoted beside the right result.
+Three attempts to gate the *prose* harness-side (name within N chars, same unit, within a
+quarter of the ledger value) each flagged only correct runs: range endpoints, inputs restated,
+published values. | A verdict the candidate supplies is a report, not a gate. And a gate on
+free text is a gate on how the agent writes; the only thing the evidence supports gating is
+the graded answer itself: sourced from the ledger, or contradicted by a same-unit scalar
+beside it. Before adding any gate, run the candidate rule over every stored trace and read
+each hit — the stored runs are the only ground truth for the gate's own false-positive rate.
+
+`2026-09-11` | A provider `400 BadRequestError` (a missing session header on the opencode
+side) made the 2026-09-09 n1 sweep score 0/30, and it sat in `results/` as a 0% arm. Two
+`APITimeoutError` runs on 2026-08-25 had already been excluded by hand to make a comparison
+honest. | `errored` is a third outcome, classified by exception class with the default being
+"the agent's fault", and `report --regrade` reclassifies stored runs for free. Never exclude
+a run by hand: the exclusion favours whichever arm happened to fail.
+
+`2026-09-11` | `reference_values.py` exec'd the n3 recipes from `/home/furkan/HelioAI/...` for
+three weeks under a docstring claiming the truth was "reproducible by anyone, forever". |
+Anything the truth depends on lives in the repository, byte-for-byte, with the upstream
+commit and a hash a test checks. `--check` proves the stored reference reproduces; a test
+runs it in CI.
+
+`2026-09-11` | `--jobs N` shipped with `--agent null --jobs 8` writing the same `results.csv`
+as `--jobs 1`, and that was taken as evidence the sweep was concurrency-safe. The HelioAI
+adapter's tool-output recorder monkeypatched a module-level singleton (`registry.call_tool`)
+per run and restored it on exit; two concurrent runs nested the wrappers, both traces got
+both runs' tool output, and the first to finish unwrapped the second, which recorded nothing
+from then on. The null agent never calls the registry, so the check exercised the runner and
+not the seam. | Anything patched on a shared object for the duration of a run is a bug the
+moment two runs overlap. Patch once and dispatch on the asyncio task context
+(`contextvars`), as HelioAI itself does for its workspace state. And a concurrency test on a
+path the null agent skips is not a concurrency test: the recorder now takes an injectable
+registry so CI, which installs no agent, can run two overlapping runs through it.

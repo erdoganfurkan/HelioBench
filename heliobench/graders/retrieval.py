@@ -67,9 +67,14 @@ def grade(task: Task, trace: Trace) -> Result:
     # over. `searched` is false for runs recorded before tool output was kept, and their
     # absent rank must not be read as a miss.
     retrieved = retrieved_ids(trace)
-    searched = any(
-        "search" in str(e["data"].get("name", "")) for e in trace.events_named("tool_output")
-    )
+    outputs = [
+        e for e in trace.events_named("tool_output") if "search" in str(e["data"].get("name", ""))
+    ]
+    searched = bool(outputs)
+    # The adapter keeps the first 4000 characters of what a tool returned. An accepted id
+    # beyond that cut was shown to the agent and not to us, so a missing rank here is not
+    # evidence it was never retrieved — the report leaves truncated runs out of recall@k.
+    truncated = any(e["data"].get("truncated") for e in outputs)
     rank = next((i + 1 for i, pid in enumerate(retrieved) if pid in accepted), None)
 
     detail = {
@@ -78,6 +83,7 @@ def grade(task: Task, trace: Trace) -> Result:
         "hit": hit,
         "invented": invented,
         "searched": searched,
+        "truncated": truncated,
         "retrieved": len(retrieved),
         "rank": rank,
     }

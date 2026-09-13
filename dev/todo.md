@@ -25,7 +25,9 @@ the reasoning behind each item below; this file is just the trackable slice of i
 
 ## Planned, written up separately
 
-- [ ] `docs/plan-v0.2-hardening.md` — the ordered plan for the next release: failure accounting
+- [~] `docs/plan-v0.2-hardening.md` — the ordered plan for the next release; A, B1–B4, C1–C2,
+      D1–D5, E1 landed 2026-09-11 on `v0.2-hardening`. Open: B5 (real-agent concurrency
+      check), C3–C4 (more events), E2–E4 (publication). The ordered plan for the next release: failure accounting
       (`errored` distinct from `failed`), `--jobs` parallelism, n3 beyond one event, the
       correctness debt below, and tagging/publishing. Read it before picking up anything in the
       backlog — several backlog items are folded into it with an order and a reason.
@@ -48,35 +50,29 @@ the reasoning behind each item below; this file is just the trackable slice of i
 
 ## Backlog — noted during a code review, not yet picked up
 
-- [ ] `scripts/reference_values.py:23` hardcodes `RECIPES = /home/furkan/HelioAI/...` — the
-      n3 truth depends on recipes outside the repo, on a machine-specific path. Contradicts
-      "reproducible by anyone, forever": make the path configurable, or freeze the recipes
-      into the repo.
+- [x] `scripts/reference_values.py:23` hardcoded `RECIPES = /home/furkan/HelioAI/...`. Fixed
+      2026-09-11: recipes frozen under `heliobench/recipes/` with upstream commit and sha256
+      in `MANIFEST`; windows moved to `fixtures/<event>/windows.json` (plan C1, C2).
 - [ ] `scripts/n1_key_candidates.py` reads HelioAI's private 342 MB Chroma index, which this
       repo does not vendor — a third party cannot audit the n1 keys. Consider shipping the
       catalogue metadata (id + document) under the roadmap's pointer + SHA-256 + fetch model.
-- [ ] `CLAUDE.md` still says "58 tasks × 3 = 174"; the real figure after the n2 trim is
-      47 tasks × 3 = 141 (README / skill / datasheet agree). Bring CLAUDE.md in line.
-- [ ] `cli.py` `--provider` defaults to `groq` while the HelioAI adapter defaults to `azure`
-      (commit b4e8fdb). `run --agent helioai` without a flag lands on groq, contrary to the
-      stated intent. Align the CLI default to `azure`.
-- [ ] `helioai.py:_TOOL_OUTPUT_LIMIT = 4000` truncates tool output, so an accepted id beyond
-      the cut is read as "never returned" and corrupts the n1 rank metric. The `truncated`
-      flag is recorded but not read by the grader or the report — surface it explicitly.
-- [ ] The n3 gate fires on correct answers when a ledger entry holds a *vector*.
-      `provenance_check._NAME_WINDOW` attributes any number within 40 characters of a ledger
-      name to that entry, so a component or a magnitude reads as contradicting the vector's
-      scalar summary. Seen three times across five arms, always on `n3_theta_bn`:
-      `-0.657` vs `shock_normal_gsm`, `161 km/s` vs `shock_speed_km_s`, and `9.68 nT` /
-      `24.97 nT` vs `B_up_gsm`. Costs about one run a sweep, at the gate, on right answers.
-      Fixed in HelioAI, but the harness reads the agent's own counter — see the next item.
-- [ ] Recompute provenance harness-side rather than trusting `collect(trace).contradicted`
-      (`graders/__init__.py:65`). The one hard gate is currently a number the agent under
-      test computes about itself: loosening its own detector would pass the gate unnoticed.
-      The 2026-08-25 `_MIN_BARE_INT` change was legitimate and checkable in the traces, which
-      is exactly why the general case is not.
-- [ ] `stats.py:mcnemar` is implemented but has no CLI surface. Add
-      `heliobench compare <runA> <runB>` (refusing when `task_set_digest` differs).
+- [x] `CLAUDE.md` said "58 tasks × 3 = 174" — fixed in c6c4325.
+- [x] `cli.py` `--provider` defaulted to `groq` — aligned to `azure` 2026-09-11.
+- [x] `_TOOL_OUTPUT_LIMIT` truncation corrupted the n1 rank — truncated-unranked runs are now
+      counted apart in the report (2026-09-11).
+- [x] The n3 gate fired on correct answers when a ledger entry held a *vector*:
+      `provenance_check._NAME_WINDOW` attributed any number within 40 characters of a ledger
+      name to that entry, so a component or a magnitude read as contradicting the vector's
+      scalar summary (`-0.657` vs `shock_normal_gsm`, `161 km/s` vs `shock_speed_km_s`,
+      `9.68 nT` / `24.97 nT` vs `B_up_gsm`, always on `n3_theta_bn`). Ten such gatings across
+      the stored sweeps, all on right answers. Replaced by `graders/provenance.py` 2026-09-11.
+- [x] Recompute provenance harness-side rather than trusting `collect(trace).contradicted`
+      (`graders/__init__.py:65`). Done 2026-09-11: the gate reads the graded answer against
+      the ledger; the agent's own counter is reported beside it, never gated on.
+- [ ] Follow-up to the above: `docs/what-this-measures.md` should eventually quote the
+      gate's measured false-positive rate on human-checked answers (0/241 stored n3 passes
+      today) as the paper's grader-audit figure.
+- [x] `stats.py:mcnemar` has a CLI surface: `heliobench compare <runA> <runB>` (2026-09-11).
 - [ ] `numeric.py` folds unit spellings but never scales (nT ↔ pT): deliberate and
       documented, but worth revisiting if units are added. The `near` ±120-char window is
       fragile to rephrasing; a robustness test would pin it.
