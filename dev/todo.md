@@ -23,6 +23,17 @@ the reasoning behind each item below; this file is just the trackable slice of i
       (2026-08-25)
 - [x] v0.1.0 tagged 2026-09-11, before any v0.2 change touched the digest
 
+- [ ] **`n1_dst_index` key is defective (found 2026-09-22 by `scripts/retrieval_replay.py`)**:
+      its accepted ids were enumerated with `'(^amda/|/)[a-z0-9_]*dst'`, lower-case, so
+      `cda/OMNI2_H0_MRG1HR/DST1800` — the hourly Dst of OMNI2, as much "the index itself" as the
+      accepted `amda/omni_dst` — was never a candidate. A HelioAI index with a wider dense beam
+      ranks it first, and the task reads that as rank 28. Widen the key (re-run
+      `n1_key_candidates.py` case-insensitively, `(?i)`), per the rule in
+      `docs/what-this-measures.md`; note the digest change before comparing to older runs.
+- [x] `scripts/retrieval_replay.py` (2026-09-22): replay a run's recorded `search_parameters`
+      queries through a HelioAI checkout with no model — recall@k / MRR as the grader computes
+      them, plus the spread of each rank over N processes (the HNSW noise floor). Zero tokens.
+
 ## Planned, written up separately
 
 - [~] `docs/plan-v0.2-hardening.md` — the ordered plan for the next release; A, B1–B4, C1–C2,
