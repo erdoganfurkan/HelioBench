@@ -25,6 +25,9 @@ class TokenUsage:
     completion: int = 0
     calls: int = 0
     exact: bool = True
+    # Prompt tokens the provider served from its cache, already included in `prompt`.
+    # Reported apart because they are billed at a fraction of the price.
+    cached: int = 0
 
 
 @dataclass

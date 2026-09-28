@@ -58,6 +58,7 @@ def _totals(records: list[dict]) -> dict:
         "n_iterations",
         "tokens_prompt",
         "tokens_completion",
+        "tokens_cached",
     )
     out = {k: sum(r["metrics"].get(k, 0) for r in records) for k in keys}
     out["wall_s"] = round(sum(r["metrics"].get("wall_s", 0.0) for r in records), 1)
@@ -204,6 +205,7 @@ def build(meta: dict, records: list[dict]) -> str:
         f"| Ledger entries | {t['ledger_entries']} | {t['ledger_entries'] / max(t['runs'], 1):.1f} |",
         f"| Prompt tokens{cost_note} | {t['tokens_prompt']} | {t['tokens_prompt'] / max(t['runs'], 1):.0f} |",
         f"| Completion tokens{cost_note} | {t['tokens_completion']} | {t['tokens_completion'] / max(t['runs'], 1):.0f} |",
+        f"| of which prompt tokens served from cache | {t['tokens_cached']} | {t['tokens_cached'] / max(t['runs'], 1):.0f} |",
         f"| Wall clock | {t['wall_s']} s | {wall_per_run} |",
         "",
     ]
