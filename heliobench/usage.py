@@ -91,6 +91,38 @@ class MeteredStream:
                 self._meter._add(usage)
 
 
+def add_own_client_usage(tokens: TokenUsage, events: list[dict], roles) -> None:
+    """Add the tokens of sub-agents that ran on a client the harness did not build.
+
+    HelioAI's `role_models` gives a sub-agent role its own provider and model, and that
+    client is built inside the agent, out of the meter's reach: an arm that sends its
+    `parameter_hunter` to a second model would otherwise report only the lead's cost. The
+    sub-agent's own account travels in its `sub_agent_end` event and is taken from there —
+    for those roles only, because a sub-agent on the lead's client went through the meter
+    already and adding its account would count it twice.
+
+    It is the agent's count, not a measurement, so `self_reported` says how many sub-agent
+    runs it covers; a run of such a role that reported nothing makes the total inexact.
+    """
+    roles = set(roles or ())
+    if not roles:
+        return
+    for e in events:
+        if e.get("event") != "sub_agent_end":
+            continue
+        d = e.get("data") or {}
+        if d.get("role") not in roles:
+            continue
+        u = d.get("usage") or {}
+        if not u.get("prompt_tokens") and not u.get("completion_tokens"):
+            tokens.exact = False
+            continue
+        tokens.prompt += int(u.get("prompt_tokens") or 0)
+        tokens.completion += int(u.get("completion_tokens") or 0)
+        tokens.cached += int(u.get("cached_tokens") or 0)
+        tokens.self_reported += 1
+
+
 def attach_token_meter(llm_client) -> TokenMeter:
     """Wrap `llm_client`'s SDK call so every completion's usage is counted.
 

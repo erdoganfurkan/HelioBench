@@ -28,6 +28,9 @@ class TokenUsage:
     # Prompt tokens the provider served from its cache, already included in `prompt`.
     # Reported apart because they are billed at a fraction of the price.
     cached: int = 0
+    # Sub-agent runs whose tokens are the agent's own account, not the meter's: those on a
+    # client the agent built for a `role_models` role (`usage.add_own_client_usage`).
+    self_reported: int = 0
 
 
 @dataclass

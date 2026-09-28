@@ -30,7 +30,7 @@ from pathlib import Path
 
 from heliobench.retry import attach_backoff
 from heliobench.trace import Trace
-from heliobench.usage import attach_token_meter
+from heliobench.usage import add_own_client_usage, attach_token_meter
 
 # Providers whose model is not selectable through the environment: HelioAI hardcodes it as a
 # dataclass default, so it has to be set on the settings object after import.
@@ -274,6 +274,12 @@ class HelioAIAgent:
             "index_size": self._index_size(),
         }
 
+    def _role_models(self) -> dict:
+        """Sub-agent roles HelioAI runs on a client of their own, as it parsed them."""
+        from helioai.config import settings
+
+        return dict(getattr(settings.agent, "role_models", {}) or {})
+
     def _index_size(self) -> int:
         """Number of indexed products, or -1 when the index cannot be opened."""
         try:
@@ -382,6 +388,7 @@ class HelioAIAgent:
         finally:
             trace.wall_s = round(time.monotonic() - t0, 3)
             trace.tokens = meter.usage
+            add_own_client_usage(trace.tokens, trace.events, self._role_models())
             await close_sdk_client(getattr(llm, "_client", None))
             store.reset(self.user_id, session_id)
 

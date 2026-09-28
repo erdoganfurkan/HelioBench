@@ -131,3 +131,38 @@ def test_a_stream_that_dies_before_its_usage_is_inexact():
         asyncio.run(_consume(client))
     assert meter.usage.exact is False
     assert meter.usage.calls == 0
+
+
+def _sub_end(role, p, c, cached=0):
+    usage = {"prompt_tokens": p, "completion_tokens": c, "cached_tokens": cached}
+    return {"event": "sub_agent_end", "data": {"role": role, "usage": usage}}
+
+
+def test_a_sub_agent_on_its_own_model_is_added_once_and_marked_self_reported():
+    from heliobench.trace import TokenUsage
+    from heliobench.usage import add_own_client_usage
+
+    tokens = TokenUsage(prompt=100, completion=10, calls=2)
+    events = [_sub_end("parameter_hunter", 50, 5, 20), _sub_end("data_analyst", 70, 7)]
+    add_own_client_usage(tokens, events, {"parameter_hunter": ("groq", None)})
+    # data_analyst ran on the lead's client: the meter saw it, its own account is not added.
+    assert (tokens.prompt, tokens.completion, tokens.cached) == (150, 15, 20)
+    assert tokens.self_reported == 1 and tokens.exact
+
+
+def test_without_role_models_nothing_is_added():
+    from heliobench.trace import TokenUsage
+    from heliobench.usage import add_own_client_usage
+
+    tokens = TokenUsage(prompt=1)
+    add_own_client_usage(tokens, [_sub_end("parameter_hunter", 50, 5)], {})
+    assert tokens.prompt == 1 and tokens.self_reported == 0
+
+
+def test_an_own_model_sub_agent_that_reported_nothing_makes_the_total_inexact():
+    from heliobench.trace import TokenUsage
+    from heliobench.usage import add_own_client_usage
+
+    tokens = TokenUsage()
+    add_own_client_usage(tokens, [_sub_end("parameter_hunter", 0, 0)], {"parameter_hunter": 1})
+    assert tokens.exact is False
