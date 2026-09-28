@@ -172,11 +172,19 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
     Traces for tasks no longer in the set are skipped, and the rebuilt meta says how many
     were kept: a re-grade against a different task set is a different measurement, and the
     digest it writes is what says so.
+
+    A trace whose prompt is not the task's prompt today is left unscored, and listed in
+    `unscored_traces`. The agent answered a different question, so grading its reply against
+    today's key repeats the mistake a hardened prompt was meant to fix, in the other
+    direction — and until 2026-09-28 it did exactly that, then stamped the run with today's
+    digest so that `compare` would have accepted it. Widening a key keeps the prompt and
+    carries a trace over; rewording it does not.
     """
     run_dir = Path(run_dir)
     by_id = {t.id: t for t in tasks}
     records: list[dict] = []
     skipped: list[str] = []
+    unscored: list[dict] = []
 
     for path in sorted((run_dir / "traces").glob("*.json")):
         trace = Trace.read(path)
@@ -184,7 +192,13 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
         if task is None:
             skipped.append(trace.task_id)
             continue
-        records.append(make_record(task, trace, int(path.stem.rsplit(".", 1)[-1])))
+        i = int(path.stem.rsplit(".", 1)[-1])
+        if trace.prompt != task.prompt:
+            unscored.append(
+                {"task_id": task.id, "run": i, "reason": "the prompt changed since this run"}
+            )
+            continue
+        records.append(make_record(task, trace, i))
 
     seen = {r["task_id"] for r in records}
     meta_path = run_dir / "meta.json"
@@ -198,6 +212,7 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
             "n_tasks": len(seen),
             "task_set_digest": task_set_digest([by_id[t] for t in sorted(seen)]),
             "skipped_traces": sorted(set(skipped)),
+            "unscored_traces": unscored,
         }
     )
     meta.setdefault("agent", first.env if first else {})

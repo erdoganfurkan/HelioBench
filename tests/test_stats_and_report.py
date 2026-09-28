@@ -175,3 +175,23 @@ def test_regrading_skips_traces_whose_task_left_the_set(tmp_path):
     result = regrade(out, [kept])
     assert [r["task_id"] for r in result["records"]] == ["n1_here"]
     assert result["meta"]["skipped_traces"] == ["n1_gone"]
+
+
+def test_a_regrade_leaves_a_trace_whose_prompt_changed_unscored(tmp_path):
+    # When a prompt is hardened, the old runs answered a different question: they are
+    # unscored, not re-scored. Regrading used to grade them against the new key and write the
+    # new digest, which `compare` would then have accepted.
+    tasks = load_tasks("tasks", tiers=["n2"])[:2]
+    out = tmp_path / "run"
+    run(NullAgent(), tasks, out, runs=1)
+    trace_path = out / "traces" / f"{tasks[0].id}.0.json"
+    data = json.loads(trace_path.read_text())
+    data["prompt"] = "an older wording of the question"
+    trace_path.write_text(json.dumps(data))
+
+    res = regrade(out, tasks)
+    assert [r["task_id"] for r in res["records"]] == [tasks[1].id]
+    assert res["meta"]["unscored_traces"] == [
+        {"task_id": tasks[0].id, "run": 0, "reason": "the prompt changed since this run"}
+    ]
+    assert res["meta"]["task_set_digest"] == task_set_digest([tasks[1]])
