@@ -204,7 +204,7 @@ def _cmd_compare(args) -> int:
 
     a, b = load_run(Path(args.run_a)), load_run(Path(args.run_b))
     try:
-        result = compare(a, b)
+        result = compare(a, b, tier=args.tier, shared=args.shared)
     except CompareError as e:
         print(f"refusing to compare: {e}", file=sys.stderr)
         return 1
@@ -326,6 +326,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cmp_p.add_argument("run_a", help="directory of the first run")
     cmp_p.add_argument("run_b", help="directory of the second run")
+    cmp_p.add_argument(
+        "--tier", choices=["n1", "n2", "n3"], default=None, help="compare one tier only"
+    )
+    cmp_p.add_argument(
+        "--shared",
+        action="store_true",
+        help="compare the tasks both runs asked in the same wording, by per-task digest, "
+        "and list the ones left out",
+    )
     cmp_p.set_defaults(func=_cmd_compare)
 
     return p
