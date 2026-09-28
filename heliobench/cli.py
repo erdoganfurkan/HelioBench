@@ -104,6 +104,8 @@ def _cmd_verify(args) -> int:
         print(f"                ! {p}")
         problems.append(p)
 
+    problems += _check_keys_in_index(agent, tasks)
+
     if getattr(args, "canary", False) and hasattr(agent, "canary"):
         import asyncio
 
@@ -119,6 +121,35 @@ def _cmd_verify(args) -> int:
         return 1
     print("\nready")
     return 0
+
+
+def _check_keys_in_index(agent, tasks) -> list[str]:
+    """Hold every n1 answer key to the index the agent will search.
+
+    A task none of whose accepted ids is in the index cannot be passed, and is a problem; a
+    key that names some ids the index lacks is printed, since the task stays solvable.
+    """
+    n1 = [t for t in tasks if t.tier == "n1" and t.expected.get("ids")]
+    if not n1 or not hasattr(agent, "missing_ids"):
+        return []
+    wanted = sorted({i for t in n1 for i in t.expected["ids"]})
+    missing = agent.missing_ids(wanted)
+    if missing is None:
+        print("n1 keys       : not checked (the index cannot be asked)")
+        return []
+    problems = []
+    for t in n1:
+        gone = sorted(set(t.expected["ids"]) & missing)
+        if not gone:
+            continue
+        if len(gone) == len(t.expected["ids"]):
+            problems.append(f"{t.id}: no accepted id is in this index ({', '.join(gone)})")
+        else:
+            print(f"n1 keys       : {t.id} names ids this index lacks: {', '.join(gone)}")
+    print(
+        f"n1 keys       : {len(n1)} task(s), {len(wanted) - len(missing)}/{len(wanted)} ids found"
+    )
+    return problems
 
 
 def _cmd_run(args) -> int:

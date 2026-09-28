@@ -98,3 +98,27 @@ def test_regrade_out_works_on_a_copy_and_leaves_the_original(tmp_path, capsys):
 def test_in_place_is_an_explicit_choice(tmp_path, capsys):
     stored = _null_run(tmp_path, tmp_path / "results" / "20260101T000000Z_null")
     assert main(["report", str(stored), "--regrade", "--in-place"]) == 0
+
+
+def test_an_n1_key_the_index_cannot_satisfy_is_a_verify_problem(capsys):
+    from heliobench.cli import _check_keys_in_index
+    from heliobench.tasks import Task
+
+    t_ok = Task(id="a", tier="n1", prompt="p", expected={"ids": ["x/1", "x/2"]}, provenance="v")
+    t_gone = Task(id="b", tier="n1", prompt="p", expected={"ids": ["y/1"]}, provenance="v")
+
+    class Agent:
+        def missing_ids(self, ids):
+            return {"x/2", "y/1"}
+
+    problems = _check_keys_in_index(Agent(), [t_ok, t_gone])
+    assert problems == ["b: no accepted id is in this index (y/1)"]
+    out = capsys.readouterr().out
+    assert "a names ids this index lacks: x/2" in out and "1/3 ids found" in out
+
+
+def test_an_agent_that_cannot_be_asked_is_not_a_problem():
+    from heliobench.cli import _check_keys_in_index
+    from heliobench.tasks import load_tasks
+
+    assert _check_keys_in_index(object(), load_tasks("tasks", tiers=["n1"])) == []

@@ -472,6 +472,21 @@ class HelioAIAgent:
             self._index_digest_cache = tree_digest(Path(index_dir))
         return self._index_digest_cache
 
+    def missing_ids(self, ids: list[str]) -> set[str] | None:
+        """The ids of `ids` the search index does not hold, or None if it cannot be asked.
+
+        An n1 key is enumerated from one index and scored against runs on another. A key
+        whose every id the index lacks is a task the agent cannot pass — and it looks, in
+        the report, exactly like a retrieval failure.
+        """
+        try:
+            from helioai.tools.rag import _collection_only
+
+            found = set(_collection_only().get(ids=list(ids), include=[])["ids"])
+        except Exception:
+            return None
+        return set(ids) - found
+
     def _index_size(self) -> int:
         """Number of indexed products, or -1 when the index cannot be opened."""
         try:
