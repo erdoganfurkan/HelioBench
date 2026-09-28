@@ -46,3 +46,26 @@ def test_the_cli_and_the_adapter_agree_on_the_default_provider():
     args = build_parser().parse_args(["verify", "--agent", "helioai"])
     adapter_default = inspect.signature(HelioAIAgent.__init__).parameters["provider"].default
     assert args.provider == adapter_default == "azure"
+
+
+def test_agent_env_takes_only_helioai_variables_the_adapter_does_not_own():
+    from heliobench.adapters.helioai import parse_agent_env
+
+    assert parse_agent_env(["HELIOAI_EXPERIMENTS=final_answer,deferred_tools"]) == {
+        "HELIOAI_EXPERIMENTS": "final_answer,deferred_tools"
+    }
+    for bad, why in [
+        ("OPENCODE_API_KEY=x", "only sets HELIOAI_"),
+        ("HELIOAI_DATA_DIR=/tmp", "set by the adapter"),
+        ("HELIOAI_OPENCODE_MODEL=m", "set by the adapter"),
+        ("HELIOAI_EXPERIMENTS", "KEY=VALUE"),
+    ]:
+        with pytest.raises(ValueError, match=why):
+            parse_agent_env([bad])
+
+
+def test_the_env_snapshot_masks_anything_credential_like():
+    from heliobench.adapters.helioai import redacted_env
+
+    env = {"HELIOAI_MCP_TOKEN": "s3cret", "HELIOAI_EXPERIMENTS": "x", "PATH": "/bin"}
+    assert redacted_env(env) == {"HELIOAI_EXPERIMENTS": "x", "HELIOAI_MCP_TOKEN": "<set>"}

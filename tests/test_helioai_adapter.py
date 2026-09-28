@@ -257,3 +257,27 @@ def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
     text = out if isinstance(out, str) else out.for_llm()
     assert ev["data"]["result"] == text and "unknown tool" in text
     assert ev["data"]["truncated"] is False
+
+
+def test_behaviour_is_pinned_to_the_defaults_and_moved_only_by_agent_env(tmp_path, monkeypatch):
+    # An experiment switched on in the shell used to reach the agent and appear nowhere.
+    monkeypatch.setenv("HELIOAI_EXPERIMENTS", "deferred_tools")
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    agent._pin_env()
+    import os
+
+    assert os.environ["HELIOAI_EXPERIMENTS"] == ""
+    agent = HelioAIAgent(
+        tmp_path / "data", provider="ollama", agent_env={"HELIOAI_EXPERIMENTS": "search_budget"}
+    )
+    agent._pin_env()
+    assert os.environ["HELIOAI_EXPERIMENTS"] == "search_budget"
+
+
+def test_the_header_names_the_behaviour_helioai_parsed(tmp_path):
+    env = HelioAIAgent(tmp_path / "data", provider="ollama").describe()
+    assert env["agent_env"] == {}
+    assert "HELIOAI_EXPERIMENTS" in env["helioai_env"]
+    if hasattr(helioai, "__version__") and helioai.__version__ >= "0.4":
+        assert env["experiments"] == [] and env["role_models"] == {}
+        assert env["judgment"]["backend"] == "null"

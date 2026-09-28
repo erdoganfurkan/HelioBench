@@ -11,11 +11,18 @@ Three things in HelioAI shape this file, all of them measured rather than assume
 - `stream_chat` takes the LLM client as an argument. That is the seam used to count tokens
   without patching the agent.
 
-`HELIOAI_DATA_DIR` moves sessions and workspaces but **not** the search index: `chroma_dir`
-is frozen from the package's own data root at import time and no environment variable
-overrides it. The index is therefore passed explicitly and pinned in the run header, which is
-what it should be anyway — it is 83 000 products built over ten minutes against a live
-upstream inventory, and two runs against two different indexes are not comparable.
+The search index is passed explicitly and pinned in the run header. Up to HelioAI 0.3,
+`HELIOAI_DATA_DIR` moved sessions and workspaces but not the index; from 0.4.0 (`2c6e856`) it
+moves the index, the catalogues and the profile too, so without `--index-dir` the agent looks
+for its index inside the benchmark's empty storage root and `preflight` refuses. Either way
+the index is 83 000 products built against a live upstream inventory, and two runs against
+two different indexes are not comparable.
+
+Everything else that changes what the agent does — named experiments, a second model for a
+sub-agent role, a judging backend, vision, MCP servers, the hybrid search, the loop's
+limits — is pinned to HelioAI's own default before import, and moved only by `--agent-env`,
+which lands in the header. Until 2026-09-28 those were inherited from the shell or a `.env`
+and recorded nowhere: two arms that differed by an experiment printed the same header.
 """
 
 from __future__ import annotations
@@ -46,6 +53,57 @@ _MODEL_ENV = {
 # the limit now travels in every `tool_output` event, so a reader never has to know which
 # version of the harness wrote a trace to know where its cut was.
 _TOOL_OUTPUT_LIMIT = 16000
+
+# Variables that change the agent's behaviour, at HelioAI's own defaults. Set rather than
+# unset: an unset variable is filled from any discoverable `.env` (`load_dotenv` runs with
+# `override=False`), so only a value this adapter writes first is a value it controls.
+_PINNED_BEHAVIOUR = {
+    "HELIOAI_EXPERIMENTS": "",
+    "HELIOAI_ROLE_MODELS": "",
+    "HELIOAI_JUDGMENT_BACKEND": "null",
+    "HELIOAI_VISION_ENABLED": "0",
+    "HELIOAI_MCP_SERVERS": "",
+    "HELIOAI_RAG_HYBRID": "1",
+    "HELIOAI_MAX_ITERATIONS": "10",
+    "HELIOAI_MAX_OUTPUT_TOKENS": "",
+}
+
+# Written by the adapter itself from its own arguments; `--agent-env` may not move them.
+_ADAPTER_OWNED = frozenset(
+    {"HELIOAI_DATA_DIR", "HELIOAI_SESSION_DB", "HELIOAI_LLM_PROVIDER", "HELIOAI_LOG_FORMAT"}
+)
+
+_SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "HEADERS", "USERS")
+
+
+def parse_agent_env(pairs: list[str] | None) -> dict[str, str]:
+    """`["HELIOAI_EXPERIMENTS=final_answer", ...]` → a dict, refusing what it must not move.
+
+    Only `HELIOAI_*` names are taken, so a credential can never be passed this way and end up
+    in a report header; and not the ones the adapter derives from its own arguments.
+    """
+    out: dict[str, str] = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            raise ValueError(f"--agent-env expects KEY=VALUE, got {pair!r}")
+        key, value = pair.split("=", 1)
+        key = key.strip()
+        if not key.startswith("HELIOAI_"):
+            raise ValueError(f"--agent-env only sets HELIOAI_* variables, not {key!r}")
+        if key in _ADAPTER_OWNED or key in _MODEL_ENV.values():
+            raise ValueError(f"{key} is set by the adapter from its own flags")
+        out[key] = value
+    return out
+
+
+def redacted_env(environ=None) -> dict[str, str]:
+    """Every `HELIOAI_*` variable the agent will read, with anything credential-like masked."""
+    environ = os.environ if environ is None else environ
+    return {
+        k: ("<set>" if any(m in k for m in _SECRET_MARKERS) and environ[k] else environ[k])
+        for k in sorted(environ)
+        if k.startswith("HELIOAI_")
+    }
 
 
 def _model_text(result) -> str:
@@ -216,6 +274,7 @@ class HelioAIAgent:
         restricted: bool = True,
         user_id: str = "heliobench",
         jobs: int = 1,
+        agent_env: dict[str, str] | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.provider = provider
@@ -224,6 +283,7 @@ class HelioAIAgent:
         self.restricted = restricted
         self.user_id = user_id
         self.jobs = jobs
+        self.agent_env = dict(agent_env or {})
         self._imported = False
 
     def _pin_env(self) -> None:
@@ -235,6 +295,8 @@ class HelioAIAgent:
         os.environ["HELIOAI_LOG_FORMAT"] = "json"
         if self.model and self.provider in _MODEL_ENV:
             os.environ[_MODEL_ENV[self.provider]] = self.model
+        os.environ.update(_PINNED_BEHAVIOUR)
+        os.environ.update(self.agent_env)
 
     def _load(self):
         """Import HelioAI once, env already pinned, and apply the settings it will not
@@ -272,7 +334,34 @@ class HelioAIAgent:
             "restricted": self.restricted,
             "index_dir": str(settings.rag.chroma_dir),
             "index_size": self._index_size(),
+            **self._behaviour(settings),
         }
+
+    def _behaviour(self, settings) -> dict:
+        """What HelioAI parsed out of the variables that change what it does.
+
+        Read back from `settings` rather than from the environment: the header must say what
+        the agent will do, and a value HelioAI does not understand is one it ignores.
+        Attributes a given HelioAI version lacks are left out, not guessed.
+        """
+        out: dict = {"agent_env": dict(self.agent_env), "helioai_env": redacted_env()}
+        agent = getattr(settings, "agent", None)
+        if hasattr(agent, "experiments"):
+            out["experiments"] = sorted(agent.experiments)
+        if hasattr(agent, "role_models"):
+            out["role_models"] = {r: list(v) for r, v in sorted(agent.role_models.items())}
+        judgment = getattr(settings, "judgment", None)
+        if judgment is not None:
+            out["judgment"] = {"backend": judgment.backend, "model": judgment.model}
+        vision = getattr(settings, "vision", None)
+        if vision is not None:
+            out["vision"] = {"enabled": vision.enabled, "model": vision.model}
+        mcp = getattr(settings, "mcp", None)
+        if mcp is not None:
+            out["mcp_servers"] = bool(getattr(mcp, "servers_json", ""))
+        if hasattr(getattr(settings, "rag", None), "hybrid_enabled"):
+            out["rag_hybrid"] = settings.rag.hybrid_enabled
+        return out
 
     def _role_models(self) -> dict:
         """Sub-agent roles HelioAI runs on a client of their own, as it parsed them."""
@@ -300,10 +389,13 @@ class HelioAIAgent:
         # The hallucination metric fails open: `unknown_ids` returns "nothing unknown" when
         # the index is unreachable, so an absent index scores as a flawless run.
         n = self._index_size()
+        hint = "" if self.index_dir else " — pass --index-dir"
         if n < 0:
-            problems.append("the Chroma index is unreachable — invented ids would score as valid")
+            problems.append(
+                f"the Chroma index is unreachable — invented ids would score as valid{hint}"
+            )
         elif n == 0:
-            problems.append("the Chroma index is empty — invented ids would score as valid")
+            problems.append(f"the Chroma index is empty — invented ids would score as valid{hint}")
 
         low = low_disk(self.data_dir, jobs=self.jobs)
         if low:

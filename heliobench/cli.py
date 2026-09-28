@@ -21,14 +21,19 @@ def _build_agent(args):
 
         return NullAgent()
     if args.agent == "helioai":
-        from heliobench.adapters.helioai import HelioAIAgent
+        from heliobench.adapters.helioai import HelioAIAgent, parse_agent_env
 
+        try:
+            agent_env = parse_agent_env(getattr(args, "agent_env", None))
+        except ValueError as e:
+            raise SystemExit(str(e)) from e
         return HelioAIAgent(
             Path(args.data_dir or tempfile.mkdtemp(prefix="heliobench-")),
             provider=args.provider,
             model=args.model,
             index_dir=Path(args.index_dir) if args.index_dir else None,
             jobs=getattr(args, "jobs", 1),
+            agent_env=agent_env,
         )
     raise SystemExit(f"unknown agent {args.agent!r}")
 
@@ -198,6 +203,15 @@ def build_parser() -> argparse.ArgumentParser:
     agent_opts.add_argument("--index-dir", default=None, help="search index the agent must use")
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")
     agent_opts.add_argument("--fixtures", default="fixtures", help="frozen data for tier n3")
+    agent_opts.add_argument(
+        "--agent-env",
+        action="append",
+        default=None,
+        metavar="HELIOAI_X=VALUE",
+        help="set a HELIOAI_* variable for the agent, repeatable. Everything that changes the "
+        "agent's behaviour is otherwise pinned to HelioAI's default, and what is set here is "
+        "printed in the report header.",
+    )
     agent_opts.add_argument(
         "--jobs",
         type=int,
