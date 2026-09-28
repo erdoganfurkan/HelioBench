@@ -34,7 +34,9 @@ dependencies = [
 # The agent under test is an extra, not a dependency: the harness must install and run
 # without any agent present, or it cannot claim to be agent-neutral.
 helioai = ["helioai-agent>=0.2.1"]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# ruff is pinned exactly: `ruff format --check` is a CI gate, and a formatter release that
+# reflows one line fails every pull request that did not touch it.
+dev = ["pytest>=8.0", "ruff==0.16.9"]
 
 [project.scripts]
 heliobench = "heliobench.cli:main"

@@ -92,9 +92,22 @@ def fixture_digests(tasks: list[Task], fixtures: Path) -> dict[str, str]:
 
 
 def new_run_dir(root: Path, agent_name: str) -> Path:
+    """A fresh directory for one sweep, never one another sweep already wrote into.
+
+    Stamped to the second; two sweeps started in the same second (a script, CI) used to
+    share a directory and interleave their traces. The second gets a `-2` suffix.
+    """
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    d = Path(root) / f"{stamp}_{agent_name}"
-    (d / "traces").mkdir(parents=True, exist_ok=True)
+    base = Path(root) / f"{stamp}_{agent_name}"
+    d, n = base, 1
+    while True:
+        try:
+            d.mkdir(parents=True)
+            break
+        except FileExistsError:
+            n += 1
+            d = base.with_name(f"{base.name}-{n}")
+    (d / "traces").mkdir()
     return d
 
 

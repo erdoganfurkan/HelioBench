@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,3 +22,12 @@ jobs:
       # No agent extra, and no network: CI proves the harness installs and its graders work
       # on their own. Anything that needs an LLM or an archive cannot run here by design.
       - run: pytest -q
+      # The whole pipeline end to end, as a user runs it: two null sweeps, a report with its
+      # HTML page, a paired comparison, and a regrade of a copy. Free, and offline.
+      - name: null smoke
+        run: |
+          heliobench run --agent null --runs 1 --out /tmp/smoke --html
+          heliobench run --agent null --runs 1 --out /tmp/smoke
+          a=$(ls -d /tmp/smoke/*_null | head -1); b=$(ls -d /tmp/smoke/*_null | tail -1)
+          heliobench compare "$a" "$b"
+          heliobench report "$a" --regrade --out /tmp/smoke-regraded

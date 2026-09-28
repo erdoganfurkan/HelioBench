@@ -269,3 +269,10 @@ def test_the_html_page_is_self_contained_and_carries_the_same_tables(tmp_path):
     assert page.startswith("<!doctype html>") and "<table>" in page
     assert "<script" not in page and "http" not in page.split("<body>")[0]
     assert '<span class="ko">✗</span>' in page
+
+
+def test_two_sweeps_started_in_the_same_second_get_two_directories(tmp_path):
+    from heliobench.runner import new_run_dir
+
+    a, b = new_run_dir(tmp_path, "null"), new_run_dir(tmp_path, "null")
+    assert a != b and (b / "traces").is_dir()
