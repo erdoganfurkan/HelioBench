@@ -35,6 +35,7 @@ def make_record(task: Task, trace: Trace, run: int) -> dict:
         "task_id": task.id,
         "tier": task.tier,
         "event": task.event,
+        **({"quality": task.quality} if task.quality else {}),
         "run": run,
         "passed": result.passed,
         "outcome": classify(trace, result.passed),

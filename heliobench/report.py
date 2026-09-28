@@ -416,6 +416,18 @@ def build(meta: dict, records: list[dict], prices: dict | None = None) -> str:
             "reproducibility. Quote a published figure from `--runs 3` or more.",
             "",
         ]
+    qualities = defaultdict(set)
+    for r in records:
+        if r.get("quality"):
+            qualities[r["quality"]].add(r["task_id"])
+    if qualities:
+        lines += [
+            "Interval quality: "
+            + ", ".join(f"{len(v)} {k.replace('_', ' ')}" for k, v in sorted(qualities.items()))
+            + " — a *proxy* interval is derived by a stated rule around a published event",
+            "time rather than taken from a paper, and agreeing with it is the weaker claim.",
+            "",
+        ]
     if not_comparable:
         lines += [
             f"⚠️ **Not comparable:** {', '.join(not_comparable)} — more than 10% of the runs",

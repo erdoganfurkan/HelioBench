@@ -61,3 +61,21 @@ def test_tier_filter(tmp_path):
     _write(tmp_path, "a.yaml", _GOOD)
     _write(tmp_path, "b.yaml", {**_GOOD, "id": "n1_x", "tier": "n1"})
     assert [t.id for t in load_tasks(tmp_path, tiers=["n1"])] == ["n1_x"]
+
+
+def test_an_unknown_interval_quality_is_refused(tmp_path):
+    from heliobench.tasks import TaskError, _load_one
+
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "id: t\ntier: n3\nprompt: p\nexpected: {value: 1, units: ''}\nprovenance: v\n"
+        "quality: from_memory\n"
+    )
+    with pytest.raises(TaskError, match="quality"):
+        _load_one(p)
+
+
+def test_every_n3_task_says_how_its_interval_was_chosen():
+    from heliobench.tasks import load_tasks
+
+    assert all(t.quality for t in load_tasks("tasks", tiers=["n3"]))

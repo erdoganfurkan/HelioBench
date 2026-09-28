@@ -2,6 +2,8 @@ id: n3_theta_bn
 tier: n3
 event: stpatrick_2015
 fixture: stpatrick_2015
+# windows.json: shock_windows(shock), guard 5 min, span 20 min — a rule, not a paper's interval
+quality: proxy
 prompt: 'The interplanetary shock of 17 March 2015 (St Patrick''s Day storm) is already downloaded
   into this session''s workspace; load it with load_data() rather than downloading again.
   Wind MFI 1-minute field in GSM is the dataset saved from cda/WI_H0_MFI/BGSM, and the Wind
