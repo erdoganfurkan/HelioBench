@@ -7,6 +7,10 @@ prompt: Which AMDA product gives the definitive 16-second interplanetary magneti
 expected:
   ids:
   - amda/imf
+key_query:
+- '^amda/'
+- '(interplanetary magnetic field|imf)'
+- 'gse'
 provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
   by `scripts/n1_key_candidates.py '^amda/' '(interplanetary magnetic field|imf)' 'gse'`,
   not recalled; three AMDA products carry an IMF vector in GSE, so the prompt names the one

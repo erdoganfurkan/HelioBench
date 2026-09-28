@@ -20,6 +20,10 @@ expected:
   - cda/WI_OR_PRE/GSE_POS
   - cda/WI_OR_PRE/GSE_POS_t
   - amda/wnd_xyz_gse
+key_query:
+- '^(cda/WI_|amda/wnd)'
+- 'position'
+- 'gse'
 provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
   by `scripts/n1_key_candidates.py '^(cda/WI_|amda/wnd)' 'position' 'gse'`, not recalled;
   every entry naming the Wind spacecraft position vector in GSE is accepted, at any cadence

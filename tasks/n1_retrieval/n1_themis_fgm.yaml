@@ -14,6 +14,9 @@ expected:
   - cda/THA_L2_FGM/tha_fgh_gsmQ
   - cda/THA_L2_FGM/tha_fge_gsm
   - cda/THA_L2_FGM/tha_fge_gsmQ
+key_query:
+- '^cda/THA_L2_FGM/'
+- 'gsm'
 provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
   by `scripts/n1_key_candidates.py '^cda/THA_L2_FGM/' 'gsm'`, not recalled; the prompt pins
   the dataset because THA_L2_FIT also carries a spin-fit FGM vector in GSM, and every telemetry

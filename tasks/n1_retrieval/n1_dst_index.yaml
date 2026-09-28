@@ -8,6 +8,9 @@ expected:
   ids:
   - amda/dst
   - amda/omni_dst
+key_query:
+- '(^amda/|/)[a-z0-9_]*dst'
+- 'index'
 provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
   by `scripts/n1_key_candidates.py '(^amda/|/)[a-z0-9_]*dst' 'index'`, not recalled; 27 entries
   carry a Dst value and 24 of them are the same index copied into an MMS MEC ephemeris dataset

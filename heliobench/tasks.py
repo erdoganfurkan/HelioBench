@@ -43,6 +43,11 @@ class Task:
     licence: str = "internal"
     fixture: str = ""
     quality: str = ""
+    # n1 only: the patterns `scripts/n1_key_candidates.py` enumerated the key with, and the
+    # candidates it returned that the key rejects, as `{pattern, reason}`. Outside the digest:
+    # they record how the key was measured, they do not change what it accepts.
+    key_query: list = field(default_factory=list)
+    key_excluded: list = field(default_factory=list)
     path: Path | None = None
 
     def __post_init__(self) -> None:
@@ -65,6 +70,9 @@ def _load_one(path: Path) -> Task:
         raise TaskError(f"{path}: tier {raw['tier']!r} not one of {TIERS}")
     if not isinstance(raw["expected"], dict):
         raise TaskError(f"{path}: `expected` must be a mapping")
+    for ex in raw.get("key_excluded") or []:
+        if not isinstance(ex, dict) or not ex.get("pattern") or not ex.get("reason"):
+            raise TaskError(f"{path}: every key_excluded entry needs a pattern and a reason")
     if raw.get("quality") and raw["quality"] not in QUALITIES:
         raise TaskError(f"{path}: quality {raw['quality']!r} not one of {QUALITIES}")
     known = {f for f in Task.__dataclass_fields__ if f != "path"}
