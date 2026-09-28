@@ -34,6 +34,18 @@ _TRANSPORT_CLASSES = frozenset(
         "TimeoutError",
         "ConnectionError",
         "ConnectionResetError",
+        # httpx, raised while a streamed completion is being read. The SDK wraps a failure
+        # to *open* a request in `APIConnectionError`/`APITimeoutError`, but a stream that
+        # dies half-way surfaces the transport's own class, and HelioAI 0.4.0 streams every
+        # lead turn — without these a dropped connection mid-answer is the agent's fault.
+        "RemoteProtocolError",
+        "ReadTimeout",
+        "ReadError",
+        "WriteError",
+        "WriteTimeout",
+        "ConnectError",
+        "ConnectTimeout",
+        "PoolTimeout",
     }
 )
 

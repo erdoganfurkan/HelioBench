@@ -116,3 +116,13 @@ def test_the_null_run_records_an_outcome_on_every_row(tmp_path):
     run(NullAgent(), [task], out, runs=2, scratch=tmp_path / "s")
     rows = json.loads((out / "results.json").read_text())
     assert all(r["outcome"] == FAILED for r in rows)
+
+
+def test_a_stream_that_dies_half_way_is_errored():
+    # HelioAI 0.4.0 streams; a dropped stream surfaces httpx's own class, not the SDK's.
+    for err in (
+        "RemoteProtocolError: peer closed connection without sending complete message body",
+        "ReadTimeout: The read operation timed out",
+        "ReadError: [Errno 104] Connection reset by peer",
+    ):
+        assert classify(_trace(err), passed=False) == ERRORED, err

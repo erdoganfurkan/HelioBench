@@ -172,3 +172,32 @@ def test_backoff_layers_over_the_token_meter_and_counts_only_what_returned():
     attach_backoff(client, Trace(task_id="t", prompt="p", agent="a"), t0=0.0, sleep=no_sleep)
     asyncio.run(client._client.chat.completions.create(model="m"))
     assert meter.usage.prompt == 10 and meter.usage.calls == 1 and meter.usage.exact
+
+
+def test_record_only_backoff_leaves_retrying_to_the_agent_and_still_records():
+    # HelioAI retries its own calls around this method; retrying here too multiplied them.
+    create, state = _flaky(99)
+    completions = types.SimpleNamespace(create=create)
+    client = types.SimpleNamespace(
+        _client=types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+    )
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    attach_backoff(client, trace, t0=0.0, attempts=1)
+    with pytest.raises(RateLimitError):
+        asyncio.run(client._client.chat.completions.create(model="m"))
+    assert state["calls"] == 1
+    (ev,) = trace.events_named("retry")
+    assert ev["data"]["by"] == "agent" and ev["data"]["error"] == "RateLimitError"
+
+
+def test_record_only_backoff_does_not_record_the_agents_own_faults():
+    create, _ = _flaky(1, exc=BadRequestError)
+    completions = types.SimpleNamespace(create=create)
+    client = types.SimpleNamespace(
+        _client=types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+    )
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    attach_backoff(client, trace, t0=0.0, attempts=1)
+    with pytest.raises(BadRequestError):
+        asyncio.run(client._client.chat.completions.create(model="m"))
+    assert trace.events_named("retry") == []

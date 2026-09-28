@@ -363,6 +363,20 @@ class HelioAIAgent:
             out["rag_hybrid"] = settings.rag.hybrid_enabled
         return out
 
+    @staticmethod
+    def _backoff_policy() -> dict:
+        """Record-only when HelioAI retries its own provider calls, harness backoff otherwise.
+
+        HelioAI wraps every SDK call in `call_with_retry` (4 attempts, honouring Retry-After)
+        in the versions that have it; stacking the harness's 5 inside it made one rate limit
+        up to twenty requests.
+        """
+        try:
+            from helioai.core.llm.base import call_with_retry  # noqa: F401
+        except ImportError:
+            return {}
+        return {"attempts": 1}
+
     def _role_models(self) -> dict:
         """Sub-agent roles HelioAI runs on a client of their own, as it parsed them."""
         from helioai.config import settings
@@ -513,7 +527,7 @@ class HelioAIAgent:
         meter = attach_token_meter(llm)
 
         t0 = time.monotonic()
-        attach_backoff(llm, trace, t0)
+        attach_backoff(llm, trace, t0, **self._backoff_policy())
         try:
             from helioai.core.agent_loop import stream_chat
 

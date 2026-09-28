@@ -71,6 +71,12 @@ def attach_backoff(llm_client, trace: Trace, t0: float, **policy) -> None:
 
     Layered over whatever already wraps `create` — the token meter, in practice — so every
     attempt that returns is counted and every one that raises is retried.
+
+    With `attempts=1` nothing is retried here and every transient failure is still recorded,
+    with `"by": "agent"`: that is for an agent that retries its own calls, as HelioAI does
+    with `call_with_retry` around this very method. Retrying at both levels multiplies — four
+    agent attempts of five harness attempts is twenty requests for one turn — while
+    recording at this level is the only place the harness sees them at all.
     """
     import time
 
@@ -89,7 +95,20 @@ def attach_backoff(llm_client, trace: Trace, t0: float, **policy) -> None:
             }
         )
 
+    agent_retries = policy.get("attempts", 5) == 1
+
     async def retrying_create(**kwargs):
-        return await with_backoff(create, on_retry=record, **policy, **kwargs)
+        try:
+            return await with_backoff(create, on_retry=record, **policy, **kwargs)
+        except Exception as e:
+            if agent_retries and is_retriable(e):
+                trace.events.append(
+                    {
+                        "event": "retry",
+                        "data": {"attempt": 1, "error": type(e).__name__, "by": "agent"},
+                        "t": round(time.monotonic() - t0, 3),
+                    }
+                )
+            raise
 
     completions.create = retrying_create
