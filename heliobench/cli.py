@@ -169,7 +169,15 @@ def _cmd_run(args) -> int:
         print("refusing to run; pass --force to override", file=sys.stderr)
         return 1
 
-    out_dir = new_run_dir(args.out, agent.name)
+    if args.resume:
+        out_dir = Path(args.resume)
+        try:
+            args.runs = _resumable(out_dir, tasks, agent)
+        except ValueError as e:
+            print(f"refusing to resume: {e}", file=sys.stderr)
+            return 1
+    else:
+        out_dir = new_run_dir(args.out, agent.name)
     total = len(tasks) * args.runs
     state = {"n": 0, "ok": 0, "err": 0}
 
@@ -191,11 +199,37 @@ def _cmd_run(args) -> int:
         fixtures=Path(args.fixtures),
         on_event=progress,
         jobs=args.jobs,
+        resume=bool(args.resume),
     )
     errored = f", {state['err']} errored" if state["err"] else ""
     print(f"\n{state['ok']}/{total} runs passed{errored}")
     print(f"report: {report_mod.write(out_dir)}")
     return 0
+
+
+def _resumable(out_dir: Path, tasks, agent) -> int:
+    """The repetition count of an interrupted run this invocation may finish, or raise.
+
+    The continuation must be the same arm on the same questions; anything else is a second
+    run written into the first one's directory.
+    """
+    import json
+
+    from heliobench.runner import task_set_digest
+
+    meta_path = out_dir / "meta.json"
+    if not meta_path.is_file():
+        raise ValueError(f"{out_dir} has no meta.json")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("status") == "complete":
+        raise ValueError(f"{out_dir} already completed")
+    if meta.get("task_set_digest") != task_set_digest(tasks):
+        raise ValueError("the task selection differs from the interrupted run's")
+    was, now = meta.get("agent", {}), agent.describe()
+    for key in ("agent", "agent_version", "agent_ref", "provider", "model", "index_digest"):
+        if was.get(key) != now.get(key):
+            raise ValueError(f"{key} was {was.get(key)!r}, is now {now.get(key)!r}")
+    return int(meta.get("runs", 1))
 
 
 def _cmd_report(args) -> int:
@@ -326,6 +360,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--runs", type=int, default=3, help="repetitions per task (pass^k)")
     run_p.add_argument("--out", default="results", help="where to write traces and the report")
     run_p.add_argument("--force", action="store_true", help="run despite preflight problems")
+    run_p.add_argument(
+        "--resume",
+        default=None,
+        metavar="RUN_DIR",
+        help="finish an interrupted run: the repetitions whose trace is already there are "
+        "regraded, the rest are run. Same tasks and same arm, or it refuses.",
+    )
     run_p.set_defaults(func=_cmd_run)
 
     rep = sub.add_parser("report", parents=[common], help="rebuild a report from stored traces")

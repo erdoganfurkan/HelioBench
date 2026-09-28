@@ -123,24 +123,54 @@ async def _one(agent, task: Task, i: int, scratch: Path, fixtures: Path, out_dir
     return make_record(task, trace, i)
 
 
-async def _sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event) -> list[dict]:
+async def _sweep(
+    agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event, done=None, sink=None
+) -> list[dict]:
     """Every repetition of every task, at most `jobs` in flight, in a deterministic order.
 
     The order of *completion* depends on the machine; the order of *records* must not. Rows
     are sorted by `(task_id, run)` before they are returned, so two sweeps with different
     `jobs` write the same `results.json` apart from the timing fields.
+
+    `done` maps `(task_id, run)` to a record already on disk, which is returned instead of
+    running again; `sink` receives each new record the moment it lands.
     """
     gate = asyncio.Semaphore(jobs)
+    done = done or {}
 
     async def guarded(task, i):
         async with gate:
             record = await _one(agent, task, i, scratch, fixtures, out_dir)
+        if sink is not None:
+            sink(record)
         if on_event:
             on_event(record)
         return record
 
-    records = await asyncio.gather(*(guarded(t, i) for t in tasks for i in range(runs)))
+    pending = [(t, i) for t in tasks for i in range(runs) if (t.id, i) not in done]
+    records = list(done.values())
+    records += await asyncio.gather(*(guarded(t, i) for t, i in pending))
     return sorted(records, key=lambda r: (r["task_id"], r["run"]))
+
+
+def _finished(out_dir: Path, tasks: list[Task], runs: int) -> dict[tuple[str, int], dict]:
+    """Records rebuilt from the traces a previous, interrupted sweep already wrote.
+
+    Regraded from the trace rather than read from `results.partial.jsonl`, so a resumed run
+    is graded by one version of the graders throughout. A trace whose prompt is not the
+    task's prompt today is not reused: it answered another question.
+    """
+    by_id = {t.id: t for t in tasks}
+    out: dict[tuple[str, int], dict] = {}
+    for path in sorted((out_dir / "traces").glob("*.json")):
+        tid, _, i = path.stem.rpartition(".")
+        task = by_id.get(tid)
+        if task is None or not i.isdigit() or int(i) >= runs:
+            continue
+        trace = Trace.read(path)
+        if trace.prompt == task.prompt:
+            out[(tid, int(i))] = make_record(task, trace, int(i))
+    return out
 
 
 def run(
@@ -153,6 +183,7 @@ def run(
     scratch: Path | None = None,
     on_event=None,
     jobs: int = 1,
+    resume: bool = False,
 ) -> dict:
     """Execute every task `runs` times, grade each, and write the run directory.
 
@@ -162,6 +193,13 @@ def run(
     `jobs` bounds how many repetitions are in flight at once. It defaults to one because
     concurrency destroys the per-run wall clock as a diagnostic and multiplies every transport
     failure — which is why failure accounting shipped before this did.
+
+    `meta.json` is written before the first run, with `status: running`, and every record is
+    appended to `results.partial.jsonl` as it lands; a sweep that is interrupted still leaves
+    a run directory `report --regrade` can read, and `status: interrupted` says so. With
+    `resume`, the repetitions whose trace is already in `out_dir` are regraded rather than
+    run again. The 2026-08-21 sweep died at run 69 of 90 with the quota spent; recovering it
+    took a day of hand-tallying.
     """
     if jobs < 1:
         raise ValueError(f"jobs must be at least 1, got {jobs}")
@@ -170,12 +208,11 @@ def run(
     scratch = Path(scratch or out_dir / "scratch")
     started = time.time()
 
-    records = asyncio.run(_sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event))
-
+    done = _finished(out_dir, tasks, runs) if resume else {}
     meta = {
         "heliobench": __version__,
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
-        "elapsed_s": round(time.time() - started, 1),
+        "status": "running",
         "runs": runs,
         "jobs": jobs,
         "n_tasks": len(tasks),
@@ -186,8 +223,34 @@ def run(
         "python": platform.python_version(),
         "agent": agent.describe(),
     }
-    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    (out_dir / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    if resume:
+        meta["resumed"] = len(done)
+    meta_path = out_dir / "meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    partial = out_dir / "results.partial.jsonl"
+    landed: list[dict] = list(done.values())
+
+    def sink(record: dict) -> None:
+        landed.append(record)
+        with partial.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+
+    def finish(records: list[dict], status: str) -> None:
+        meta["status"] = status
+        meta["elapsed_s"] = round(time.time() - started, 1)
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        records = sorted(records, key=lambda r: (r["task_id"], r["run"]))
+        (out_dir / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+
+    try:
+        records = asyncio.run(
+            _sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event, done, sink)
+        )
+    except BaseException:
+        finish(landed, "interrupted")
+        raise
+    finish(records, "complete")
+    partial.unlink(missing_ok=True)
     return {"meta": meta, "records": records}
 
 

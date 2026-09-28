@@ -201,3 +201,51 @@ def test_record_only_backoff_does_not_record_the_agents_own_faults():
     with pytest.raises(BadRequestError):
         asyncio.run(client._client.chat.completions.create(model="m"))
     assert trace.events_named("retry") == []
+
+
+# --- interruption and resume -------------------------------------------------------------
+
+
+class _DiesAfter(NullAgent):
+    """Runs `n` repetitions, then the sweep is interrupted."""
+
+    def __init__(self, n):
+        super().__init__()
+        self.n = n
+        self.calls = 0
+
+    async def run(self, prompt, workdir, task_id="", **kw):
+        self.calls += 1
+        if self.calls > self.n:
+            raise KeyboardInterrupt
+        return await super().run(prompt, workdir, task_id=task_id, **kw)
+
+
+def test_an_interrupted_sweep_leaves_a_readable_run_and_resumes(tmp_path):
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(_DiesAfter(3), tasks, out, runs=1, scratch=tmp_path / "s")
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["status"] == "interrupted"
+    assert len(json.loads((out / "results.json").read_text())) == 3
+    assert len((out / "results.partial.jsonl").read_text().splitlines()) == 3
+
+    again = _DiesAfter(99)
+    res = run(again, tasks, out, runs=1, scratch=tmp_path / "s", resume=True)
+    assert again.calls == len(tasks) - 3, "finished repetitions are not run again"
+    assert res["meta"]["status"] == "complete" and res["meta"]["resumed"] == 3
+    assert len(res["records"]) == len(tasks)
+    assert not (out / "results.partial.jsonl").exists()
+
+
+def test_resume_refuses_another_task_selection(tmp_path, capsys):
+    from heliobench.cli import main
+
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(_DiesAfter(1), tasks, out, runs=1, scratch=tmp_path / "s")
+    assert main(["run", "--tier", "n3", "--resume", str(out)]) == 1
+    assert "task selection differs" in capsys.readouterr().err
+    assert main(["run", "--tier", "n2", "--resume", str(out)]) == 0
