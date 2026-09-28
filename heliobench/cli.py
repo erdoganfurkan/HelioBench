@@ -14,6 +14,19 @@ from pathlib import Path
 
 from heliobench import __version__
 
+# Storage roots this process created for the agent, removed when the command ends unless
+# `--keep-workspaces` asks otherwise. One passed with `--data-dir` is the caller's and stays.
+_OWNED_DATA_DIRS: list[Path] = []
+
+
+def _cleanup(args) -> None:
+    if getattr(args, "keep_workspaces", False):
+        return
+    import shutil
+
+    while _OWNED_DATA_DIRS:
+        shutil.rmtree(_OWNED_DATA_DIRS.pop(), ignore_errors=True)
+
 
 def _build_agent(args):
     if args.agent == "null":
@@ -27,13 +40,18 @@ def _build_agent(args):
             agent_env = parse_agent_env(getattr(args, "agent_env", None))
         except ValueError as e:
             raise SystemExit(str(e)) from e
+        data_dir = args.data_dir
+        if not data_dir:
+            data_dir = tempfile.mkdtemp(prefix="heliobench-")
+            _OWNED_DATA_DIRS.append(Path(data_dir))
         return HelioAIAgent(
-            Path(args.data_dir or tempfile.mkdtemp(prefix="heliobench-")),
+            Path(data_dir),
             provider=args.provider,
             model=args.model,
             index_dir=Path(args.index_dir) if args.index_dir else None,
             jobs=getattr(args, "jobs", 1),
             agent_env=agent_env,
+            keep_workspaces=getattr(args, "keep_workspaces", False),
         )
     raise SystemExit(f"unknown agent {args.agent!r}")
 
@@ -214,6 +232,12 @@ def build_parser() -> argparse.ArgumentParser:
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")
     agent_opts.add_argument("--fixtures", default="fixtures", help="frozen data for tier n3")
     agent_opts.add_argument(
+        "--keep-workspaces",
+        action="store_true",
+        help="keep each run's agent workspace and the temporary storage root; by default the "
+        "files its artifacts point at are copied into the run directory and the rest removed",
+    )
+    agent_opts.add_argument(
         "--agent-env",
         action="append",
         default=None,
@@ -289,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             "agent snapshot preparation did not replace the process"
         )  # pragma: no cover
-    return args.func(args)
+    try:
+        return args.func(args)
+    finally:
+        _cleanup(args)
 
 
 if __name__ == "__main__":

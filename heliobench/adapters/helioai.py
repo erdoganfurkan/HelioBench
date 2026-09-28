@@ -250,6 +250,38 @@ def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     )
 
 
+def keep_artifacts(artifacts: list[dict], session_dir: Path, dest: Path) -> int:
+    """Copy the files a run's artifacts point at out of its workspace, before it is deleted.
+
+    The workspace is the agent's scratch space and is removed after each run: an n3
+    session seeds ~37 MB into it, and a sweep that left them behind filled `/tmp` once and
+    killed a paid sweep at run 69. The figures and the code the agent ran are the part worth
+    keeping, and they are small. Each copied artifact gains a `kept` path next to its
+    original one; the original is left as recorded, since it is what the agent reported.
+    Only files inside `session_dir` are copied — an artifact pointing elsewhere is not the
+    run's to keep.
+    """
+    session_dir = Path(session_dir).resolve()
+    n = 0
+    for a in artifacts:
+        kept: list[str] = []
+        paths = [a.get("code_path"), a.get("path"), *(a.get("figure_paths") or [])]
+        for raw in paths:
+            if not isinstance(raw, str) or not raw:
+                continue
+            src = Path(raw).resolve()
+            if session_dir not in src.parents or not src.is_file():
+                continue
+            target = dest / src.relative_to(session_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+            kept.append(str(target))
+            n += 1
+        if kept:
+            a["kept"] = kept
+    return n
+
+
 def _discoverable_dotenv(start: Path) -> Path | None:
     """The `.env` HelioAI's own discovery would find walking up from `start`."""
     for d in [start, *start.parents]:
@@ -275,6 +307,7 @@ class HelioAIAgent:
         user_id: str = "heliobench",
         jobs: int = 1,
         agent_env: dict[str, str] | None = None,
+        keep_workspaces: bool = False,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.provider = provider
@@ -284,6 +317,7 @@ class HelioAIAgent:
         self.user_id = user_id
         self.jobs = jobs
         self.agent_env = dict(agent_env or {})
+        self.keep_workspaces = keep_workspaces
         self._imported = False
 
     def _pin_env(self) -> None:
@@ -553,4 +587,7 @@ class HelioAIAgent:
             store.reset(self.user_id, session_id)
 
         trace.ledger = read_ledger(session_dir)
+        keep_artifacts(trace.artifacts, session_dir, workdir / "artifacts")
+        if not self.keep_workspaces:
+            shutil.rmtree(session_dir, ignore_errors=True)
         return trace

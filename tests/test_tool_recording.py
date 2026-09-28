@@ -107,3 +107,22 @@ def test_a_tool_result_object_is_recorded_as_the_text_the_model_saw():
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
     assert isinstance(out, _Result), "the agent must get its own object back"
     assert ev["data"]["result"] == '{"results": [{"id": "cda/AC_H0_MFI/BGSM"}]}'
+
+
+def test_artifacts_are_copied_out_of_the_workspace_before_it_goes(tmp_path):
+    from heliobench.adapters.helioai import keep_artifacts
+
+    ws = tmp_path / "ws"
+    (ws / "figs").mkdir(parents=True)
+    (ws / "code_0.py").write_text("print(1)")
+    (ws / "figs" / "b.png").write_bytes(b"png")
+    outside = tmp_path / "elsewhere.png"
+    outside.write_bytes(b"x")
+    artifacts = [
+        {"kind": "code", "code_path": str(ws / "code_0.py")},
+        {"kind": "image", "figure_paths": [str(ws / "figs" / "b.png"), str(outside)]},
+    ]
+    assert keep_artifacts(artifacts, ws, tmp_path / "run" / "artifacts") == 2
+    assert (tmp_path / "run" / "artifacts" / "figs" / "b.png").read_bytes() == b"png"
+    assert artifacts[1]["kept"] == [str(tmp_path / "run" / "artifacts" / "figs" / "b.png")]
+    assert artifacts[0]["code_path"] == str(ws / "code_0.py"), "what the agent said stays"

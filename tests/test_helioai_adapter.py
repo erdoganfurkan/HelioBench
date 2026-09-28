@@ -64,6 +64,11 @@ def test_a_run_produces_a_trace_without_touching_a_provider(tmp_path, monkeypatc
     assert trace.wall_s > 0
     assert trace.tokens.prompt == 7 and trace.tokens.exact
     assert trace.env["provider"] == "ollama"
+    from helioai.workspace import user_home
+
+    assert not (user_home("heliobench") / "workspace" / "bench_n2_beta").exists(), (
+        "a finished run's workspace is removed; n3 seeds ~37 MB into each"
+    )
 
 
 def test_seeding_makes_the_agent_reuse_our_directory(tmp_path):
