@@ -187,3 +187,28 @@ def test_agent_ref_requires_the_helioai_agent():
     with pytest.raises(SystemExit) as e:
         main(["run", "--agent", "null", "--agent-ref", "main"])
     assert "--agent helioai" in str(e.value)
+
+
+def test_a_branch_name_does_not_match_another_branch_ending_with_it(tmp_path):
+    # `git ls-remote repo main` matches refs/heads/feature/main too.
+    sha, branch = _init_repo(tmp_path / "repo")
+    repo = tmp_path / "repo"
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "-q", "-b", f"feature/{branch}"], check=True
+    )
+    (repo / "g.txt").write_text("y", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "g.txt"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "other"], check=True)
+    assert resolve_ref(branch, repo=str(repo)) == sha
+
+
+def test_a_name_that_is_both_a_branch_and_a_tag_elsewhere_is_refused(tmp_path):
+    sha, branch = _init_repo(tmp_path / "repo")
+    repo = tmp_path / "repo"
+    (repo / "g.txt").write_text("y", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "g.txt"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "other"], check=True)
+    subprocess.run(["git", "-C", str(repo), "branch", "v1-branch"], check=True)
+    subprocess.run(["git", "-C", str(repo), "branch", "v1"], check=True)
+    with pytest.raises(AgentRefError, match="both a branch"):
+        resolve_ref("v1", repo=str(repo))

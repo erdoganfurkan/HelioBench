@@ -62,15 +62,36 @@ def _parse_ls_remote(stdout: str) -> list[str]:
 
 
 def resolve_ref(ref: str, repo: str = REPO) -> str:
-    """Turn a branch/tag name into a commit sha; pass an already-commit-shaped ref through."""
+    """Turn a branch/tag name into a commit sha; pass an already-commit-shaped ref through.
+
+    Only `refs/heads/<ref>` and `refs/tags/<ref>` are asked for. `git ls-remote <repo> main`
+    matches by suffix, so `main` also returned `refs/heads/feature/main` or a
+    `refs/pull/…/main`, and the first line printed — not necessarily the branch meant — was
+    installed. A name that is both a branch and a tag at different commits is refused.
+    """
     if _looks_like_sha(ref):
         return ref
-    proc = subprocess.run(["git", "ls-remote", repo, ref], capture_output=True, text=True)
+    heads, tags = f"refs/heads/{ref}", f"refs/tags/{ref}"
+    proc = subprocess.run(
+        ["git", "ls-remote", repo, heads, tags, f"{tags}^{{}}"], capture_output=True, text=True
+    )
     if proc.returncode != 0:
         raise AgentRefError(
             f"cannot resolve ref {ref!r} against {repo}: {proc.stderr.strip() or 'unknown error'}"
         )
-    shas = _parse_ls_remote(proc.stdout)
+    exact = [
+        line
+        for line in proc.stdout.splitlines()
+        if "\t" in line and line.split("\t", 1)[1] in (heads, tags, f"{tags}^{{}}")
+    ]
+    branch = _parse_ls_remote("\n".join(x for x in exact if x.endswith("\t" + heads)))
+    tag = _parse_ls_remote("\n".join(x for x in exact if not x.endswith("\t" + heads)))
+    if branch and tag and branch[0] != tag[0]:
+        raise AgentRefError(
+            f"{ref!r} is both a branch ({branch[0][:7]}) and a tag ({tag[0][:7]}); "
+            f"pass the commit sha"
+        )
+    shas = branch or tag
     if not shas:
         raise AgentRefError(f"ref {ref!r} not found on {repo}")
     return shas[0]
