@@ -207,3 +207,65 @@ def test_meta_records_a_digest_per_task_and_per_fixture(tmp_path):
     assert meta["fixture_digests"] == fixture_digests(tasks, __import__("pathlib").Path("fixtures"))
     # The set digest is unchanged by this: stored runs must keep comparing.
     assert meta["task_set_digest"] == task_set_digest(tasks)
+
+
+def _n3_run(tmp_path, runs=1):
+    tasks = load_tasks("tasks", tiers=["n2"])[:2] + load_tasks("tasks", tiers=["n3"])[:2]
+    out = tmp_path / "run"
+    run(NullAgent(), tasks, out, runs=runs)
+    return out
+
+
+def test_one_repetition_is_flagged_as_saying_nothing_about_reproducibility(tmp_path):
+    md = report.write(_n3_run(tmp_path, runs=1)).read_text(encoding="utf-8")
+    assert "One repetition" in md
+    md = report.write(_n3_run(tmp_path / "k", runs=2)).read_text(encoding="utf-8")
+    assert "One repetition" not in md
+
+
+def test_the_report_has_a_per_task_matrix_and_process_by_tier(tmp_path):
+    md = report.write(_n3_run(tmp_path, runs=2)).read_text(encoding="utf-8")
+    assert "## Per task" in md and "| n2 | ✗✗ |" in md
+    assert "## Process by tier" in md and "Wall p95" in md
+
+
+def test_prices_turn_tokens_into_cost(tmp_path):
+    out = _n3_run(tmp_path)
+    recs = json.loads((out / "results.json").read_text())
+    for r in recs:
+        r["metrics"].update(tokens_prompt=1_000_000, tokens_completion=100_000, tokens_cached=0)
+    (out / "results.json").write_text(json.dumps(recs))
+    meta = json.loads((out / "meta.json").read_text())
+    prices = {meta["agent"]["model"]: {"input": 1.0, "output": 10.0}}
+    md = report.build(meta, recs, prices)
+    assert "| Cost (USD) | 8.0000 | 2.0000 |" in md
+    assert "Cost (USD)" not in report.build(meta, recs)
+
+
+def test_cached_prompt_tokens_are_priced_at_the_cached_rate():
+    assert report.cost_usd(1_000_000, 0, 400_000, "m", {"m": {"input": 1, "cached": 0.1}}) == (
+        pytest_approx(0.64)
+    )
+
+
+def test_the_header_says_what_was_regraded_and_what_was_left_unscored(tmp_path):
+    meta = {
+        "agent": {"agent": "helioai", "experiments": ["search_budget"], "agent_env": {}},
+        "regraded": "2026-09-28T10:00:00+00:00",
+        "unscored_traces": [{"task_id": "n1_x", "run": 0, "reason": "the prompt changed"}],
+        "status": "interrupted",
+    }
+    md = report.build(meta, [])
+    assert "| Regraded | 2026-09-28T10:00:00+00:00 |" in md
+    assert "1 — the prompt changed since the run (n1_x)" in md
+    assert "experiments: search_budget" in md
+    assert "⚠️ interrupted" in md
+
+
+def test_the_html_page_is_self_contained_and_carries_the_same_tables(tmp_path):
+    out = _n3_run(tmp_path)
+    report.write(out, html=True)
+    page = (out / "report.html").read_text(encoding="utf-8")
+    assert page.startswith("<!doctype html>") and "<table>" in page
+    assert "<script" not in page and "http" not in page.split("<body>")[0]
+    assert '<span class="ko">✗</span>' in page

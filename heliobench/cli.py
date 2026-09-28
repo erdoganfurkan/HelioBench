@@ -203,7 +203,7 @@ def _cmd_run(args) -> int:
     )
     errored = f", {state['err']} errored" if state["err"] else ""
     print(f"\n{state['ok']}/{total} runs passed{errored}")
-    print(f"report: {report_mod.write(out_dir)}")
+    print(f"report: {report_mod.write(out_dir, _prices(args), html=args.html)}")
     return 0
 
 
@@ -254,9 +254,19 @@ def _cmd_report(args) -> int:
     if args.regrade:
         out = regrade(run_dir, _select(args))
         print(f"re-graded {len(out['records'])} runs over {out['meta']['n_tasks']} tasks")
-    path = report_mod.write(run_dir)
+    path = report_mod.write(run_dir, _prices(args), html=args.html)
     print(path.read_text(encoding="utf-8"))
+    if args.html:
+        print(f"html: {path.with_suffix('.html')}")
     return 0
+
+
+def _prices(args) -> dict | None:
+    if not getattr(args, "prices", None):
+        return None
+    from heliobench.report import load_prices
+
+    return load_prices(Path(args.prices))
 
 
 def _stored(run_dir: Path) -> bool:
@@ -338,6 +348,17 @@ def build_parser() -> argparse.ArgumentParser:
         "queueing rather than the agent and is not reported; cost stays exact.",
     )
 
+    report_opts = argparse.ArgumentParser(add_help=False)
+    report_opts.add_argument(
+        "--prices",
+        default=None,
+        metavar="YAML",
+        help="USD per million tokens by model ({model: {input, output, cached}}); adds cost",
+    )
+    report_opts.add_argument(
+        "--html", action="store_true", help="also write report.html, one self-contained page"
+    )
+
     ls = sub.add_parser("list", parents=[common], help="list the tasks that would run")
     ls.set_defaults(func=_cmd_list)
 
@@ -355,7 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     ver.set_defaults(func=_cmd_verify)
 
     run_p = sub.add_parser(
-        "run", parents=[common, agent_opts], help="run an agent over the task set"
+        "run", parents=[common, agent_opts, report_opts], help="run an agent over the task set"
     )
     run_p.add_argument("--runs", type=int, default=3, help="repetitions per task (pass^k)")
     run_p.add_argument("--out", default="results", help="where to write traces and the report")
@@ -369,7 +390,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.set_defaults(func=_cmd_run)
 
-    rep = sub.add_parser("report", parents=[common], help="rebuild a report from stored traces")
+    rep = sub.add_parser(
+        "report", parents=[common, report_opts], help="rebuild a report from stored traces"
+    )
     rep.add_argument("run_dir", help="directory of a previous run")
     rep.add_argument(
         "--regrade",
