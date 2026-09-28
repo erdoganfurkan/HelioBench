@@ -11,7 +11,7 @@ data**. HelioBench measures the part that was missing.
 
 ## The rule that shapes everything here
 
-> **The harness runs and reports. It never grades.**
+> **No model decides whether an answer was right.**
 
 Every verdict comes from deterministic code — string comparison, unit-aware numeric
 tolerance, arithmetic. No LLM judge decides whether an answer is right. Benchmarks scored by
@@ -38,8 +38,10 @@ a result.
 
 ## Status
 
-v0.1.0 is tagged: a working instrument with a small task set. `docs/roadmap-paper.md` says
-what it is not yet, and `docs/plan-v0.2-hardening.md` says what comes next.
+v0.2.0 is the version HelioAI 0.4.0 is measured with: a working instrument with a small task
+set, whose task-set digest has not moved since v0.1.0. `CHANGELOG.md` says what each version
+changed, `docs/roadmap-paper.md` what it is not yet, and `docs/plan-v0.2-hardening.md` what
+comes next.
 
 ## Install
 
@@ -63,10 +65,20 @@ depends on which directory it was launched from is not a score. Credentials are 
 and `verify` warns when a discoverable `.env` could still inject anything left unpinned.
 
 `verify` before `run`, always. The invented-identifier check fails open — an unreachable
-search index makes fabrication look flawless — and `verify` is what catches that.
+search index makes fabrication look flawless — and `verify` is what catches that, along with
+a missing key, an n1 answer key the index cannot satisfy, and a full disk. `verify --canary`
+also sends the provider one tiny request, the only way to see it refuse requests before a
+sweep spends its quota.
+
+Everything in HelioAI that changes what the agent does (experiments, a second model for a
+sub-agent role, a judging backend, vision, MCP servers, loop limits) is pinned to HelioAI's
+default and moved only by `--agent-env HELIOAI_X=value`, which the report header prints.
+The header also carries the index's digest and the dependency versions the arm ran on.
 
 A full run is 47 tasks x 3 repetitions = 141 agent runs against a paid provider. `--agent
-null` and `--task <id>` are the cheap ways to exercise the machinery.
+null` and `--task <id>` are the cheap ways to exercise the machinery. A sweep that is
+interrupted leaves a readable run directory; `run --resume <run dir>` finishes it. Add
+`--html` for a one-page report and `--prices prices.yaml` for its cost in dollars.
 
 Two runs of the same task set compare the paired way:
 
@@ -75,8 +87,13 @@ heliobench compare results/<run A> results/<run B>
 ```
 
 It prints an exact McNemar test under two collapsings of the repetitions (`pass^k` and
-majority) and the tasks that moved, and refuses when the two `task_set_digest` differ —
-different digests mean different questions were asked.
+majority) and the tasks that moved, the process metrics paired task by task, and everything
+else that differs between the two arms. It refuses when the two `task_set_digest` differ —
+different digests mean different questions were asked — unless told to compare one tier
+(`--tier`) or only the tasks both runs asked in the same wording (`--shared`).
+
+A stored run is re-scored under today's graders with `report <run> --regrade --out <copy>`;
+the stored run itself is never rewritten.
 
 To benchmark a **specific commit** of HelioAI rather than whatever `helioai-agent` happens to
 be installed, pass `--agent-ref` (a branch, tag or commit SHA). It builds an isolated venv

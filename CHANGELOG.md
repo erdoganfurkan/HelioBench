@@ -6,7 +6,54 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-28
+
+The state HelioAI 0.4.0 is measured with. `task_set_digest` is unchanged
+(`50009d286465d407`): every stored run keeps comparing. Regrading all 28 stored runs against
+the previous commit moves no verdict; the one run affected, `20260819T101256Z`, has 9 traces
+whose prompts were hardened on 2026-08-21 and are now unscored instead of re-scored.
+
 ### Added
+- `verify --canary`: one request of a few dozen tokens through the client a run would
+  build. The only check that sees a provider refuse requests — the 400 `MissingSessionID`
+  that zeroed the 2026-09-09 sweep — before a sweep spends its quota.
+- `run --resume <run dir>`: `meta.json` is written before the first run (`status:
+  running`), every record is appended to `results.partial.jsonl` as it lands, an
+  interrupted sweep finalises as `status: interrupted`, and `--resume` regrades the
+  repetitions whose trace is there and runs the rest. Refused for another task selection or
+  another arm.
+- `--agent-env HELIOAI_X=VALUE`: the one way to move HelioAI's behaviour (see Changed).
+- `report --regrade --out <dir>` regrades a copy; `--in-place` is required to regrade a run
+  under `results/` or `heliobench-results/`, which is now refused by default.
+- `compare --tier` and `compare --shared`: compare one tier, or only the tasks both runs
+  asked in the same wording, through per-task digests (`task_digests` in `meta.json`). The
+  comparison lists what else differs between the arms — model, index, experiments,
+  dependencies, grader version — and pairs the process metrics (tokens, tool calls, turns,
+  wall clock, n1 rank) task by task with an exact sign test. On the 2026-09-23 arms it shows
+  that 0.3.0 and the 0.4.0 candidate also ran on two different indexes.
+- `report`: the arm's behaviour settings, its dependencies (`env_digest` and key versions),
+  the index's digest, the fixtures' digests, whether the run was regraded, resumed or
+  interrupted, and which traces were left unscored; a warning when `runs=1`; process by
+  tier with wall p50/p95; a per-task matrix; optional cost with `--prices <yaml>`; and
+  `--html`, one self-contained page rendered from the same markdown.
+- n1 detail records `hedged` (an accepted id beside a non-accepted one — 184 of the 560
+  stored passes), `first_accepted` and `unreturned` (quoted ids no search in the run
+  returned, the harness's own view of invention); the report shows them beside the score.
+  Reported, not gated.
+- `verify` holds every n1 answer key to the index the agent will search, and refuses a task
+  none of whose accepted ids is in it.
+- `scripts/regrade_stored.py`: copy, regrade and diff every stored run; `--against` diffs
+  two regrades, which is the table a scoring PR pastes.
+- `scripts/contamination_check.py`: the benchmark's answers inside what reaches the agent's
+  context — its skills, system prompts, recipes, a profile. HelioAI `release/0.4.0` carries
+  none.
+- `scripts/retrieval_replay.py`: replay a run's recorded searches through a HelioAI checkout
+  with no model; recall@k and the HNSW noise floor for zero tokens.
+- An optional `quality` on tasks (`paper_quality | proxy | candidate_interval`); the twelve
+  n3 tasks are `proxy` — their windows are a rule around the shock time, not a paper's.
+  Outside the digest.
+- CI runs on Python 3.12–3.14 and ends with the null pipeline end to end: two sweeps, the
+  HTML report, a comparison and a regrade of a copy.
 - The recipe functions that derive tier-n3 truth are frozen under `heliobench/recipes/`,
   byte-for-byte from HelioAI at the commits recorded in `MANIFEST`, and hash-checked by a
   test. `scripts/reference_values.py` used to exec them from an absolute path on one machine,
@@ -33,6 +80,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `task_set_digest` differ. Every paired comparison before this was a hand-run scratch script.
 
 ### Changed
+- Every HelioAI variable that changes what the agent does — `HELIOAI_EXPERIMENTS`,
+  `HELIOAI_ROLE_MODELS`, the judgment backend, vision, MCP servers, the hybrid search, the
+  loop limits — is pinned to HelioAI's default before import, and moved only by
+  `--agent-env`. They used to be inherited from the shell or a `.env` and recorded nowhere,
+  so two arms differing by an experiment printed the same header. The header now carries
+  what HelioAI parsed from them and a masked snapshot of every `HELIOAI_*` variable.
+- `preflight` builds every client a run will build — the lead's and each `role_models`
+  role's — so a missing key fails before the sweep. 154 stored runs died on their first
+  provider call.
+- The tool-output limit kept in a trace rises from 4000 to 16000 characters and travels in
+  each `tool_output` event as `limit`.
+- The harness's own backoff becomes record-only against HelioAI, which retries every
+  provider call itself (`call_with_retry`, four attempts, Retry-After honoured): stacked,
+  one rate limit could cost twenty requests. Transient failures are still recorded as
+  `retry` events, with `"by": "agent"`.
+- A finished run's agent workspace is removed once the files its artifacts point at are
+  copied under the run directory (`artifacts/`, `kept` in the trace); the temporary storage
+  root is removed at exit. `--keep-workspaces` keeps both. An n3 session seeds ~37 MB, and
+  379 MB of them were sitting in `/tmp` from the September sweeps.
 - The provenance gate is the harness's verdict, computed in `heliobench/graders/provenance.py`
   from the ledger and the reply, not the agent's own `contradicted` counter. That counter had
   fired ten times across the stored sweeps, every time on a correct answer — a vector
@@ -59,6 +125,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   flag passed and no CSV edited.
 
 ### Fixed
+- The token meter counted nothing for a streamed completion: HelioAI 0.4.0 streams every
+  lead turn, and the 0.4.0-candidate sweep reported `0 ⚠️ not exact` over 47 tasks. The
+  stream is handed back wrapped and its usage read off the final chunk; cached prompt
+  tokens are counted apart; sub-agents that `role_models` puts on a client of their own are
+  costed from their `sub_agent_end` account and flagged as self-reported.
+- HelioAI 0.4.0's registry returns a `ToolResult`, and the recorder stored its Python repr
+  in all 47 traces of the 0.4.0-candidate sweep. It now stores `for_llm()`, the text the
+  model was shown.
+- A stream that dies half-way raises httpx's own classes (`RemoteProtocolError`,
+  `ReadTimeout`, `ReadError`, …), which were scored as the agent's fault; they are errored.
+- `report --regrade` graded a trace whose prompt had since been hardened against the new
+  key, and wrote the new digest, which `compare` would have accepted. Such traces are now
+  `unscored_traces` in `meta.json`.
+- `--agent-ref main` asked `git ls-remote` for `main`, which matches any ref ending in it;
+  only `refs/heads/<ref>` and `refs/tags/<ref>` are asked for now, and a name that is both
+  at different commits is refused.
+- Two sweeps started in the same second shared a run directory.
 - The HelioAI adapter's tool-output recorder wrapped `registry.call_tool` — a module-level
   singleton — once per run and put the original back on exit. Under `--jobs > 1` the
   wrappers nested: every trace in flight received every run's tool output, and the first run
