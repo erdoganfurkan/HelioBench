@@ -28,6 +28,6 @@ jobs:
         run: |
           heliobench run --agent null --runs 1 --out /tmp/smoke --html
           heliobench run --agent null --runs 1 --out /tmp/smoke
-          a=$(ls -d /tmp/smoke/*_null | head -1); b=$(ls -d /tmp/smoke/*_null | tail -1)
+          a=$(ls -d /tmp/smoke/*_null* | head -1); b=$(ls -d /tmp/smoke/*_null* | tail -1)
           heliobench compare "$a" "$b"
           heliobench report "$a" --regrade --out /tmp/smoke-regraded
