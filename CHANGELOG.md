@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-28
+
 `task_set_digest` moves from `50009d286465d407` to `8c052ae42ce9a47c` (n1:
 `1f3f0c0983979b98` → `8eb87cd540699b96`; n2: → `cfb0c87584ac7657`; n3 unchanged,
 `b32234325bded7a1`). No prompt changed, so every stored trace carries over and is re-scored:

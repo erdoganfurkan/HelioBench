@@ -38,8 +38,9 @@ a result.
 
 ## Status
 
-v0.2.0 is the version HelioAI 0.4.0 is measured with: a working instrument with a small task
-set, whose task-set digest has not moved since v0.1.0. `CHANGELOG.md` says what each version
+v0.3.0 is the version HelioAI 0.4.0 is measured with: a working instrument with a small task
+set, on task-set digest `8c052ae42ce9a47c`. v0.2.0 is the same harness on the digest every
+run before 2026-09-28 shares (`50009d286465d407`), kept so those runs stay comparable. `CHANGELOG.md` says what each version
 changed, `docs/roadmap-paper.md` what it is not yet, and `docs/plan-v0.2-hardening.md` what
 comes next.
 
