@@ -281,3 +281,23 @@ def test_the_header_names_the_behaviour_helioai_parsed(tmp_path):
     if hasattr(helioai, "__version__") and helioai.__version__ >= "0.4":
         assert env["experiments"] == [] and env["role_models"] == {}
         assert env["judgment"]["backend"] == "null"
+
+
+def test_a_client_that_cannot_be_built_is_a_preflight_problem(tmp_path, monkeypatch):
+    # 154 stored runs died on `OPENCODE_API_KEY is not set` or a provider 400, one call in.
+    def refuse(provider=None, model=None):
+        raise RuntimeError("OPENCODE_API_KEY is not set in .env")
+
+    monkeypatch.setattr("helioai.core.llm.factory.build_llm_client", refuse)
+    agent = HelioAIAgent(tmp_path / "data", provider="opencode")
+    problems = agent.preflight()
+    assert any("lead client (opencode) cannot be built" in p for p in problems)
+
+
+def test_the_canary_reports_what_the_request_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "helioai.core.llm.factory.build_llm_client",
+        lambda provider=None, model=None: _FakeLLM("ok"),
+    )
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    assert asyncio.run(agent.canary()) == "ok (7 prompt + 3 completion tokens)"

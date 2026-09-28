@@ -86,6 +86,16 @@ def _cmd_verify(args) -> int:
         print(f"                ! {p}")
         problems.append(p)
 
+    if getattr(args, "canary", False) and hasattr(agent, "canary"):
+        import asyncio
+
+        try:
+            print(f"canary        : {asyncio.run(agent.canary())}")
+        except Exception as e:
+            msg = f"the provider rejected a one-line request: {type(e).__name__}: {e}"
+            print(f"canary        : FAILED {msg}")
+            problems.append(msg)
+
     if problems:
         print(f"\n{len(problems)} problem(s) — a run now would produce numbers you cannot defend")
         return 1
@@ -227,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
         "verify",
         parents=[common, agent_opts],
         help="check the environment before spending money on a run",
+    )
+    ver.add_argument(
+        "--canary",
+        action="store_true",
+        help="also send one tiny request to the provider (a few dozen tokens): the only check "
+        "that catches a provider rejecting requests before a sweep spends its quota",
     )
     ver.set_defaults(func=_cmd_verify)
 

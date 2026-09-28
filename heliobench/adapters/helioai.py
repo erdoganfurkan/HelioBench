@@ -37,7 +37,7 @@ from pathlib import Path
 
 from heliobench.retry import attach_backoff
 from heliobench.trace import Trace
-from heliobench.usage import add_own_client_usage, attach_token_meter
+from heliobench.usage import UnmeteredProvider, add_own_client_usage, attach_token_meter
 
 # Providers whose model is not selectable through the environment: HelioAI hardcodes it as a
 # dataclass default, so it has to be set on the settings object after import.
@@ -397,6 +397,8 @@ class HelioAIAgent:
         elif n == 0:
             problems.append(f"the Chroma index is empty — invented ids would score as valid{hint}")
 
+        problems += self._client_problems()
+
         low = low_disk(self.data_dir, jobs=self.jobs)
         if low:
             problems.append(low)
@@ -408,6 +410,58 @@ class HelioAIAgent:
                 "this adapter does not pin can be inherited from it"
             )
         return problems
+
+    def _client_problems(self) -> list[str]:
+        """Build every client a run will build, so a missing key fails here and not in it.
+
+        Four stored sweeps — 154 runs — died on their first provider call: two with
+        `*_API_KEY is not set`, two with a provider rejecting the request outright. Building
+        the client is free and catches the first kind, for the lead and for every role
+        `HELIOAI_ROLE_MODELS` sends elsewhere; the meter is attached too, because a client
+        it cannot count is one whose cost the report would publish as zero. The second kind
+        needs a request: `verify --canary`.
+        """
+        from helioai.core.llm.factory import build_llm_client
+
+        targets = [(self.provider, None, "lead")]
+        targets += [(p, m, role) for role, (p, m) in sorted(self._role_models().items())]
+        problems = []
+        for provider, model, who in targets:
+            try:
+                llm = (
+                    build_llm_client(provider, model=model) if model else build_llm_client(provider)
+                )
+            except Exception as e:
+                problems.append(
+                    f"the {who} client ({provider}) cannot be built: {type(e).__name__}: {e}"
+                )
+                continue
+            if who == "lead":
+                try:
+                    attach_token_meter(llm)
+                except UnmeteredProvider as e:
+                    problems.append(str(e))
+        return problems
+
+    async def canary(self) -> str:
+        """Send one tiny request through the lead's client, exactly as a run would build it.
+
+        Costs a few dozen tokens. It is the only check that sees what a provider does with a
+        real request — the 400 `MissingSessionID` that zeroed the 2026-09-09 sweep was
+        visible on the first call and on no configuration file.
+        """
+        self._load()
+        from helioai.core.llm.base import Message, close_sdk_client
+        from helioai.core.llm.factory import build_llm_client
+
+        llm = build_llm_client(self.provider)
+        meter = attach_token_meter(llm)
+        try:
+            await llm.chat([Message(role="user", content="Reply with the single word: ok")], [])
+        finally:
+            await close_sdk_client(getattr(llm, "_client", None))
+        u = meter.usage
+        return f"ok ({u.prompt} prompt + {u.completion} completion tokens)"
 
     def seed(self, workdir: Path, fixture: Path | None, session_id: str) -> str:
         """Point a session at `workdir` and pre-fill it, so the run is replayable offline.
