@@ -172,12 +172,31 @@ def _cmd_report(args) -> int:
     from heliobench.runner import regrade
 
     run_dir = Path(args.run_dir)
+    if args.out:
+        import shutil
+
+        dest = Path(args.out)
+        if dest.exists() and any(dest.iterdir()):
+            raise SystemExit(f"--out {dest} exists and is not empty")
+        shutil.copytree(run_dir, dest, dirs_exist_ok=True)
+        run_dir = dest
+    elif args.regrade and not args.in_place and _stored(run_dir):
+        raise SystemExit(
+            f"refusing to regrade {run_dir} in place: --regrade rewrites meta.json and "
+            "results.json, and runs under results/ or heliobench-results/ are the evidence. "
+            "Pass --out DIR to regrade a copy, or --in-place if this run is yours to rewrite."
+        )
     if args.regrade:
         out = regrade(run_dir, _select(args))
         print(f"re-graded {len(out['records'])} runs over {out['meta']['n_tasks']} tasks")
     path = report_mod.write(run_dir)
     print(path.read_text(encoding="utf-8"))
     return 0
+
+
+def _stored(run_dir: Path) -> bool:
+    """Whether a run directory sits where stored evidence lives."""
+    return any(part in ("results", "heliobench-results") for part in run_dir.resolve().parts)
 
 
 def _cmd_compare(args) -> int:
@@ -285,6 +304,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="score the stored traces again with today's graders and task set, then report. "
         "Costs nothing: graders read traces, never the agent.",
+    )
+    rep.add_argument(
+        "--out",
+        default=None,
+        metavar="DIR",
+        help="copy the run here first and work on the copy; the way to regrade a stored run",
+    )
+    rep.add_argument(
+        "--in-place",
+        action="store_true",
+        help="allow --regrade to rewrite a run under results/ or heliobench-results/",
     )
     rep.set_defaults(func=_cmd_report)
 

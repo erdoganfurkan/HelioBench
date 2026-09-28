@@ -69,3 +69,32 @@ def test_the_env_snapshot_masks_anything_credential_like():
 
     env = {"HELIOAI_MCP_TOKEN": "s3cret", "HELIOAI_EXPERIMENTS": "x", "PATH": "/bin"}
     assert redacted_env(env) == {"HELIOAI_EXPERIMENTS": "x", "HELIOAI_MCP_TOKEN": "<set>"}
+
+
+def _null_run(tmp_path, where):
+    from heliobench.adapters.null import NullAgent
+    from heliobench.runner import run
+    from heliobench.tasks import load_tasks
+
+    run(NullAgent(), load_tasks("tasks", tiers=["n2"])[:1], where, runs=1)
+    return where
+
+
+def test_a_stored_run_is_not_regraded_in_place(tmp_path):
+    stored = _null_run(tmp_path, tmp_path / "results" / "20260101T000000Z_null")
+    with pytest.raises(SystemExit, match="refusing to regrade"):
+        main(["report", str(stored), "--regrade"])
+
+
+def test_regrade_out_works_on_a_copy_and_leaves_the_original(tmp_path, capsys):
+    stored = _null_run(tmp_path, tmp_path / "results" / "20260101T000000Z_null")
+    before = (stored / "meta.json").read_text()
+    copy = tmp_path / "copy"
+    assert main(["report", str(stored), "--regrade", "--out", str(copy)]) == 0
+    assert (stored / "meta.json").read_text() == before
+    assert "regraded" in (copy / "meta.json").read_text()
+
+
+def test_in_place_is_an_explicit_choice(tmp_path, capsys):
+    stored = _null_run(tmp_path, tmp_path / "results" / "20260101T000000Z_null")
+    assert main(["report", str(stored), "--regrade", "--in-place"]) == 0
