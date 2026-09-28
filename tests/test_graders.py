@@ -219,3 +219,28 @@ def test_silence_about_provenance_is_not_four_zeros():
     # The agent emits nothing when the session computed nothing. An absent report and a
     # clean report must not read the same in the results table.
     assert collect(_trace()).provenance_reported is False
+
+
+def test_n1_detail_reports_hedging_and_ids_no_search_returned_without_changing_the_verdict():
+    from heliobench.graders import retrieval
+    from heliobench.tasks import Task
+    from heliobench.trace import Trace
+
+    task = Task(id="t", tier="n1", prompt="p", expected={"ids": ["cda/A/x"]}, provenance="v")
+    trace = Trace(
+        task_id="t",
+        prompt="p",
+        agent="a",
+        reply="Use cda/B/y, or cda/A/x.",
+        events=[
+            {
+                "event": "tool_output",
+                "data": {"name": "search_parameters", "result": "cda/A/x cda/C/z"},
+            }
+        ],
+    )
+    r = retrieval.grade(task, trace)
+    assert r.passed, "reported, not gated"
+    assert r.detail["hedged"] is True
+    assert r.detail["first_accepted"] is False
+    assert r.detail["unreturned"] == ["cda/B/y"]
