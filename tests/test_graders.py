@@ -244,3 +244,61 @@ def test_n1_detail_reports_hedging_and_ids_no_search_returned_without_changing_t
     assert r.detail["hedged"] is True
     assert r.detail["first_accepted"] is False
     assert r.detail["unreturned"] == ["cda/B/y"]
+
+
+# Every row is a spelling a defensible answer used, and what the parser must read out of it.
+# The first eleven were misread or missed before 2026-09-28 (`dev/lessons.md`).
+@pytest.mark.parametrize(
+    "text, units, near, want",
+    [
+        ("V_A = 87.5 km s⁻¹", "km/s", ["v_a"], [87.5]),
+        ("V_A = 87.5 km·s⁻¹", "km/s", None, [87.5]),
+        ("V_A = 87.5 kms^-1", "km/s", None, [87.5]),
+        ("Debye length λ_D = 235.1 metres", "m", ["debye"], [235.1]),
+        ("Debye length λ_D = 235.1 meters", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351e2 m", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351 × 10^2 m", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351 × 10² m", "m", ["debye"], [235.1]),
+        ("inertial length d_i = 2,280 km", "km", ["inertial"], [2280.0]),
+        ("the speed range 400-450 km/s", "km/s", None, [450.0]),
+        ("$v_A = 87.5\\,\\mathrm{km/s}$", "km/s", ["v_a"], [87.5]),
+        ("n = 7.0 cm^{-3}", "cm-3", None, [7.0]),
+        ("n = 7.0 /cc", "cm-3", None, [7.0]),
+        ("n = 7.0 cm⁻³", "cm-3", None, [7.0]),
+        ("**87.5 km/s**", "km/s", None, [87.5]),
+        ("87.5\u202fkm/s", "km/s", None, [87.5]),
+        ("θ_Bn is 45.2 degrees", "deg", ["θ"], [45.2]),
+        ("B = -9.7 nT (southward)", "nT", None, [-9.7]),
+        ("B = 9.7 nanotesla", "nT", None, [9.7]),
+        ("f_ce = 559.8 hertz", "Hz", None, [559.8]),
+    ],
+)
+def test_the_spellings_of_a_defensible_answer_are_read(text, units, near, want):
+    assert candidates(text, units, near) == pytest.approx(want)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ratio 2.59 from 5 min windows at 08:30 UT on 2015-03-17",
+        "between 2015-03-17T03:35:59 and 04:25",
+        "over 20 minutes and 3 s",
+    ],
+)
+def test_dates_times_and_durations_are_not_bare_numbers(text):
+    assert candidates(text, "", None) == ([2.59] if "2.59" in text else [])
+
+
+def test_units_are_folded_never_scaled():
+    # The prompt names the unit; converting would make the grader decide what was meant.
+    assert candidates("f_ce ≈ 0.56 kHz", "Hz", None) == []
+    assert candidates("B = 9700 pT", "nT", None) == []
+    assert candidates("λ_D = 0.235 km", "m", None) == []
+
+
+def test_near_matches_whole_tokens_only():
+    # `di` inside *distance* used to open a keyword window around an unrelated number.
+    text = "d_i is 86.1 km." + " filler" * 40 + " The distance to the bow shock was 50 km."
+    assert candidates(text, "km", ["di", "d_i"]) == [86.1]
+    assert candidates("d_i = 86.1 km", "km", ["d_i"]) == [86.1]
+    assert candidates("|B| = 9.7 nT", "nT", ["|b|"]) == [9.7]

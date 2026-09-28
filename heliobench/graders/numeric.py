@@ -9,6 +9,10 @@ findings on its own confusion.
 An angle is compared in degrees, never in percent. Five percent of 89° is 4.5°, which passes
 almost anything; five percent of 2° is 0.1°, which passes almost nothing. Tolerances for
 angles are absolute, and the task file has to say so.
+
+Units are folded, never scaled: `0.56 kHz` is not read as 560 Hz, and `0.235 km` is not a
+Debye length asked for in metres. Every prompt names the unit it wants, and converting would
+make the grader decide what the agent meant.
 """
 
 from __future__ import annotations
@@ -24,8 +28,14 @@ _UNIT_ALIASES = {
     "cm^-3": "cm-3",
     "cm**-3": "cm-3",
     "/cm3": "cm-3",
+    "/cm^3": "cm-3",
+    "#/cm3": "cm-3",
+    "#/cm^3": "cm-3",
+    "/cc": "cm-3",
     "#/cc": "cm-3",
     "n/cc": "cm-3",
+    "p/cc": "cm-3",
+    "per cc": "cm-3",
     "cm-3": "cm-3",
     "r_e": "re",
     "re": "re",
@@ -35,15 +45,94 @@ _UNIT_ALIASES = {
     "deg": "deg",
     "km s-1": "km/s",
     "kms-1": "km/s",
+    "km s^-1": "km/s",
+    "kms^-1": "km/s",
+    "km·s^-1": "km/s",
+    "km/sec": "km/s",
+    "metres": "m",
+    "meters": "m",
+    "metre": "m",
+    "meter": "m",
+    "kilometres": "km",
+    "kilometers": "km",
+    "kilometre": "km",
+    "kilometer": "km",
+    "nanotesla": "nt",
+    "hertz": "hz",
 }
 
 # Longest spellings first: `km/s` must win over `km`, and `km` over `m`, or a speed is
-# read as a length. The trailing lookahead is what keeps `5 min` from parsing as 5 metres.
+# read as a length. The trailing lookahead is what keeps `5 mol` from parsing as 5 metres.
+# Units no task asks for (durations) are listed so that a duration is read as one: unlisted,
+# `5 min` was a bare 5, and a bare number is what a ratio or a Mach number is graded against.
 _UNIT_PATTERN = (
-    r"km/s|km s-1|kms-1|cm\^?-3|cm\*\*-3|cm-3|cm⁻³|/cm3|#/cc|n/cc|"
-    r"nT|pT|nPa|keV|MeV|eV|kK|MK|Hz|mHz|kHz|R_E|RE|Re|degrees|deg|°|%|km|m|K"
+    r"km s\^-1|kms\^-1|km·s\^-1|km s-1|kms-1|km/sec|km/s|"
+    r"cm\^-3|cm\*\*-3|cm-3|cm⁻³|#/cm\^3|#/cm3|/cm\^3|/cm3|#/cc|n/cc|p/cc|per cc|/cc|"
+    r"nanotesla|nT|pT|nPa|keV|MeV|eV|kK|MK|hertz|Hz|mHz|kHz|R_E|RE|Re|degrees|degree|deg|°|%|"
+    r"kilometres|kilometers|kilometre|kilometer|km|metres|meters|metre|meter|"
+    r"minutes|minute|mins|min|seconds|second|secs|sec|hours|hour|hrs|hr|days|day|UTC|UT|"
+    r"m|K|s|h"
 )
-_NUMBER = re.compile(rf"(-?\d+(?:\.\d+)?)\s*({_UNIT_PATTERN})?(?![\w/^-])")
+# Read so that a duration is not a bare number; never a unit a task is graded in.
+DURATION_UNITS = frozenset(
+    "minutes minute mins min seconds second secs sec hours hour hrs hr days day UTC UT s h".split()
+)
+
+# A sign only where nothing numeric precedes it, so `400-450 km/s` is a range and not 400
+# and −450; digits grouped by commas in threes; an exponent written `e-3` or `× 10^-3`.
+_MANTISSA = r"(?<![\w.,])(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?)"
+_TIMES_TEN = r"(?:\s*[×x·*]\s*10\^\(?([-+]?\d+)\)?)?"
+_NUMBER = re.compile(rf"{_MANTISSA}{_TIMES_TEN}\s*({_UNIT_PATTERN})?(?![\w/^-])")
+
+_SUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
+# ISO dates and clock times are not quantities: blanked before any number is read, so that
+# `2015-03-17` is not read as three numbers, nor `08:30 UT` as two.
+_DATETIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z?)?"
+    r"|(?<![\d.])\d{1,2}:\d{2}(?::\d{2})?(?![\d.])"
+)
+_LATEX = (
+    (re.compile(r"\\(?:mathrm|text|rm|textrm|operatorname)\s*\{([^{}]*)\}"), r"\1"),
+    (re.compile(r"\^\{([^{}]*)\}"), r"^\1"),
+    (re.compile(r"\\(?:,|;|:|!| |quad|qquad)"), " "),
+    (re.compile(r"\\times"), "×"),
+    (re.compile(r"\\cdot"), "·"),
+    (re.compile(r"\\(?:approx|sim|simeq)"), "~"),
+    (re.compile(r"\\(?:circ|degree)"), "°"),
+    (re.compile(r"\$"), " "),
+)
+
+
+def normalise(text: str) -> str:
+    """The reply with its typography folded onto one spelling.
+
+    Every rule here is a defensible answer the parser used to reject or misread: `87.5 km
+    s⁻¹` (nothing), `2.351e2 m` (2.0 m), `86,066 m` (66 m), `400-450 km/s` (−450), LaTeX
+    `\\mathrm{km/s}` (nothing), `235.1 metres` (nothing). Positions — and so the `near`
+    windows — refer to the normalised text.
+    """
+    text = (text or "").replace("−", "-").replace("≈", "~").replace("–", "-")
+    for space in ("\u00a0", "\u202f", "\u2009", "\u2005"):
+        text = text.replace(space, " ")
+    for pattern, repl in _LATEX:
+        text = pattern.sub(repl, text)
+    text = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]+", lambda m: "^" + m.group(0).translate(_SUPERSCRIPT), text)
+    # Markdown bold is not an exponent: `**87.5 km/s**` must not read as `** 87.5`.
+    text = re.sub(r"(?<!cm)\*\*", "  ", text)
+    return _DATETIME.sub(lambda m: " " * len(m.group(0)), text)
+
+
+def parse(m: re.Match) -> tuple[str, float, str]:
+    """`(spelling, value, unit)` of one `_NUMBER` match.
+
+    The spelling keeps the precision the reply claimed, with a `× 10^n` folded into an `e`
+    exponent, so `provenance._tolerance` can read the rounding it allows.
+    """
+    mantissa, exponent, unit = m.group(1), m.group(2), m.group(3) or ""
+    raw = mantissa.replace(",", "")
+    if exponent is not None:
+        raw = f"{raw}e{int(exponent)}"
+    return raw, float(raw), unit
 
 
 def canonical_unit(u: str) -> str:
@@ -64,6 +153,16 @@ def _within(found: float, want: float, tol: dict) -> bool:
     return abs(found - want) <= rel * max(abs(want), 1e-12)
 
 
+def _near_pattern(word: str) -> re.Pattern:
+    """`word` as a whole token of the lowercased reply.
+
+    A substring match made `di` match *distance* and *indicates* and `va` match *value*, so
+    the keyword window covered most replies. Letters and digits bound a token; `_` and `|` do
+    not, so `v_a` and `|b|` still match themselves.
+    """
+    return re.compile(rf"(?<![a-z0-9]){re.escape(word.lower())}(?![a-z0-9])")
+
+
 def candidates_with_text(text: str, units: str, near: list[str] | None) -> list[tuple[str, float]]:
     """`candidates`, keeping the spelling each number had in the reply.
 
@@ -71,25 +170,25 @@ def candidates_with_text(text: str, units: str, near: list[str] | None) -> list[
     float and different claims — and the provenance check needs it to know how much rounding
     a match may absorb.
     """
-    text = (text or "").replace("−", "-").replace("≈", "~")
+    text = normalise(text)
     windows: list[tuple[int, int]] = []
     if near:
         low = text.lower()
         for word in near:
-            for m in re.finditer(re.escape(word.lower()), low):
+            for m in _near_pattern(word).finditer(low):
                 windows.append((m.start() - 120, m.end() + 120))
 
     out: list[tuple[str, float]] = []
     for m in _NUMBER.finditer(text):
-        raw, unit = m.group(1), (m.group(2) or "")
+        try:
+            raw, value, unit = parse(m)
+        except ValueError:
+            continue
         if not same_unit(unit, units):
             continue
         if windows and not any(a <= m.start() <= b for a, b in windows):
             continue
-        try:
-            out.append((raw, float(raw)))
-        except ValueError:
-            continue
+        out.append((raw, value))
     return out
 
 
