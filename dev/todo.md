@@ -23,13 +23,15 @@ the reasoning behind each item below; this file is just the trackable slice of i
       (2026-08-25)
 - [x] v0.1.0 tagged 2026-09-11, before any v0.2 change touched the digest
 
-- [ ] **`n1_dst_index` key is defective (found 2026-09-22 by `scripts/retrieval_replay.py`)**:
+- [x] **`n1_dst_index` key is defective (found 2026-09-22 by `scripts/retrieval_replay.py`)**:
       its accepted ids were enumerated with `'(^amda/|/)[a-z0-9_]*dst'`, lower-case, so
       `cda/OMNI2_H0_MRG1HR/DST1800` — the hourly Dst of OMNI2, as much "the index itself" as the
       accepted `amda/omni_dst` — was never a candidate. A HelioAI index with a wider dense beam
       ranks it first, and the task reads that as rank 28. Widen the key (re-run
       `n1_key_candidates.py` case-insensitively, `(?i)`), per the rule in
       `docs/what-this-measures.md`; note the digest change before comparing to older runs.
+      Fixed 2026-09-28 — the diagnosis above was wrong: the query *was* case-insensitive and
+      returned the id; the key omitted it by hand (`dev/lessons.md`).
 - [x] `scripts/retrieval_replay.py` (2026-09-22): replay a run's recorded `search_parameters`
       queries through a HelioAI checkout with no model — recall@k / MRR as the grader computes
       them, plus the spread of each rank over N processes (the HNSW noise floor). Zero tokens.
@@ -84,10 +86,14 @@ the reasoning behind each item below; this file is just the trackable slice of i
       gate's measured false-positive rate on human-checked answers (0/241 stored n3 passes
       today) as the paper's grader-audit figure.
 - [x] `stats.py:mcnemar` has a CLI surface: `heliobench compare <runA> <runB>` (2026-09-11).
-- [ ] `numeric.py` folds unit spellings but never scales (nT ↔ pT): deliberate and
+- [x] `numeric.py` folds unit spellings but never scales (nT ↔ pT): deliberate and
       documented, but worth revisiting if units are added. The `near` ±120-char window is
-      fragile to rephrasing; a robustness test would pin it.
-- [ ] **Token meter is blind to a streaming agent (found 2026-09-23, arm B of the 0.3.0 vs
+      fragile to rephrasing; a robustness test would pin it. 2026-09-28: a table-driven test
+      pins twenty spellings; `near` matches whole tokens. Scaling stays out, on purpose.
+- [ ] `near` is ignored when none of its keywords appears in the reply (`windows` empty →
+      every number is a candidate). Deliberate or not, it is undocumented; measure how many
+      stored passes rely on it before changing it.
+- [x] **Token meter is blind to a streaming agent (found 2026-09-23, arm B of the 0.3.0 vs
       0.4.0-candidate comparison)**: HelioAI `073eaad` calls `chat.completions.create(stream=True,
       stream_options={"include_usage": True})`, so `counting_create` receives an `AsyncStream` with
       no `.usage`, marks the run `exact=False` and counts nothing — the report printed
@@ -96,3 +102,20 @@ the reasoning behind each item below; this file is just the trackable slice of i
       the response is an async stream, return a wrapper that yields every chunk unchanged and
       records `chunk.usage` when a chunk carries one (the last one does); `calls += 1` at the end.
       Arm A (`v0.3.0`, non-streaming) was metered normally: 1 065 450 / 98 387.
+      Fixed 2026-09-28 (`usage.MeteredStream`), with the `ToolResult` repr found beside it.
+
+## Found 2026-09-28 (refresh before the PyHC demo), not yet picked up
+
+- [ ] n1 keys with undecided candidates, from `n1_key_candidates.py --check` on the live
+      index: `n1_amda_imf` (per-component `amda/imf_real_gse(0..2)`, `amda/dsc_b_*`,
+      `amda/omni*_imf`), `n1_themis_fgm` (the other THA FGM products and quality flags) and
+      `n1_wind_position` (`WI_H1_SWE{,_RTN}/{x,y,z}gse`, `WI_K0_WAV/Moon_pos*`). Each needs
+      a decision — accept, or `key_excluded` with its reason — not a guess.
+- [ ] 26 of the 30 n1 tasks do not record the query their key was enumerated with. Recover
+      it (re-enumerate, then record `key_query`), so `--check` covers the whole tier.
+- [ ] Task licences: every task says `licence: internal`. Choose one for the task text before
+      a public release (HF, leaderboard); the n3 source data is already stated as CC0.
+- [ ] Reference run of HelioAI 0.4.0 at `--runs 3` (141 runs) on digest `8c052ae42ce9a47c`,
+      with `verify --canary` first. Needs agreement on the quota.
+- [ ] The adapter test that reaches the network on a cache miss
+      (`test_a_seeded_fixture_is_served_without_the_network`) hangs when the archive is slow.

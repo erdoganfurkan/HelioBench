@@ -151,3 +151,12 @@ scores belongs to the change under test only if that change is its only row.
 skill; the skill says `amda/imf_real_gse`, a different product. | Match an identifier as a
 whole token — an id ends where the characters an id may contain do — or a scan for leaks
 reports its own substring matches.
+
+`2026-09-28` | `n1_dst_index` rejected OMNI2's hourly Dst for five weeks, and the todo entry
+that finally caught it blamed a lower-case enumeration. The enumeration was case-insensitive
+and had returned the id; the provenance line even counted three non-MEC candidates. The key
+listed two. The omission was made by hand, after the measurement, where no check looked. |
+A key records its query and a reason for every candidate it rejects (`key_query`,
+`key_excluded`), and `n1_key_candidates.py --check` fails on any candidate that is neither
+accepted nor excluded. Diagnose a key defect by re-running its query, not by reasoning about
+how it was probably run.

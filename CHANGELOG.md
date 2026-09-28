@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+`task_set_digest` moves from `50009d286465d407` to `8c052ae42ce9a47c` (n1:
+`1f3f0c0983979b98` → `8eb87cd540699b96`; n2: → `cfb0c87584ac7657`; n3 unchanged,
+`b32234325bded7a1`). No prompt changed, so every stored trace carries over and is re-scored:
+regrading the 28 stored runs against v0.2.0 moves five verdicts, all `n1_dst_index` from
+failed to passed, every one a reply naming `cda/OMNI2_H0_MRG1HR/DST1800` alone. The
+2026-09-23 comparison of 0.3.0 against the 0.4.0 candidate loses its `n1_dst_index` move:
+it was the key, not the agent.
+
+### Changed
+- `n1_dst_index` accepts `cda/OMNI2_H0_MRG1HR/DST1800`, OMNI2's hourly Dst. Its own recorded
+  enumeration returned it; the key omitted it by hand.
+- n2 tolerance is 1%, not 5%. The worst of the 68 stored n2 passes was 0.224% off; no stored
+  verdict moves.
+- The numeric grader reads the spellings defensible answers used and it missed or misread:
+  `km s⁻¹`, `km·s⁻¹`, `metres`, `nanotesla`, `2.351e2 m` and `2.351 × 10² m` (read as 2.0 m),
+  `2,280 km` (read as 280 km), `400-450 km/s` (read as −450), `cm^{-3}`, `/cc`, LaTeX
+  `\mathrm{…}`. Dates, clock times and durations are no longer bare numbers — `5 min` was
+  a unitless 5, the shape of a Mach number. Units are still folded and never scaled. `near`
+  keywords match whole tokens: `di` matched *distance*. No stored verdict moves.
+- The provenance check compares units the way the numeric grader does (case-folded).
+
+### Added
+- n1 tasks may record `key_query` — the patterns their key was enumerated with — and
+  `key_excluded`, each rejected candidate pattern with its reason; both outside the digest.
+  `scripts/n1_key_candidates.py --check` re-runs every recorded query against an index and
+  lists the candidates nobody decided about. 4 of the 30 n1 tasks record their query; on the
+  current index `n1_amda_imf`, `n1_themis_fgm` and `n1_wind_position` have undecided
+  candidates (`dev/todo.md`).
+
 ## [0.2.0] — 2026-09-28
 
 The state HelioAI 0.4.0 is measured with. `task_set_digest` is unchanged
