@@ -111,8 +111,8 @@ def _retrieval_lines(records: list[dict]) -> list[str]:
         "Rank of the first accepted identifier inside what the search tools returned, in the",
         "order the agent was shown them. It splits a wrong answer into the two defects that",
         "look identical in the pass rate: never retrieved, or retrieved and passed over. A run",
-        "whose search output was cut at the trace's 4000-character limit before any accepted",
-        "id appeared is left out of the rank rather than counted as never returned.",
+        "whose search output was cut at the trace's limit before any accepted id appeared",
+        "is left out of the rank rather than counted as never returned.",
         "",
     ]
 

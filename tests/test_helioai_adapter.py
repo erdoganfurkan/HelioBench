@@ -254,5 +254,6 @@ def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
     assert registry.call_tool == original and "call_tool" not in vars(registry)
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
     assert ev["data"]["name"] == "no_such_tool"
-    assert ev["data"]["result"] == out and "unknown tool" in out
+    text = out if isinstance(out, str) else out.for_llm()
+    assert ev["data"]["result"] == text and "unknown tool" in text
     assert ev["data"]["truncated"] is False

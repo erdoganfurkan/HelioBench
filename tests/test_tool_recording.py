@@ -8,7 +8,7 @@ object with an async `call_tool`, so a stand-in for HelioAI's registry is enough
 
 import asyncio
 
-from heliobench.adapters.helioai import _DISPATCHER, _recording_tool_output
+from heliobench.adapters.helioai import _DISPATCHER, _TOOL_OUTPUT_LIMIT, _recording_tool_output
 from heliobench.trace import Trace
 
 
@@ -65,7 +65,7 @@ def test_a_call_outside_any_run_is_passed_through_unrecorded():
 def test_the_recorder_keeps_what_a_tool_returned_verbatim_and_flags_truncation():
     class _Long(_Registry):
         async def call_tool(self, name, arguments=None, *, trusted=None):
-            return "x" * 5000
+            return "x" * (_TOOL_OUTPUT_LIMIT + 1000)
 
     registry = _Long()
     trace = Trace(task_id="t", prompt="", agent="")
@@ -76,7 +76,34 @@ def test_the_recorder_keeps_what_a_tool_returned_verbatim_and_flags_truncation()
 
     out = asyncio.run(main())
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
-    assert out == "x" * 5000, "the agent must see the full result"
-    assert ev["data"]["result"] == "x" * 4000
+    assert out == "x" * (_TOOL_OUTPUT_LIMIT + 1000), "the agent must see the full result"
+    assert ev["data"]["result"] == "x" * _TOOL_OUTPUT_LIMIT
     assert ev["data"]["truncated"] is True
+    assert ev["data"]["limit"] == _TOOL_OUTPUT_LIMIT
     assert ev["data"]["arguments"] == {"query": "Bz"}
+
+
+def test_a_tool_result_object_is_recorded_as_the_text_the_model_saw():
+    # HelioAI 0.4.0's registry returns a `ToolResult`; its repr is not what the model read.
+    class _Result:
+        def for_llm(self):
+            return '{"results": [{"id": "cda/AC_H0_MFI/BGSM"}]}'
+
+        def __repr__(self):
+            return "ToolResult(tool='search_parameters', payload={...})"
+
+    class _Objects(_Registry):
+        async def call_tool(self, name, arguments=None, *, trusted=None):
+            return _Result()
+
+    registry = _Objects()
+    trace = Trace(task_id="t", prompt="", agent="")
+
+    async def main():
+        with _recording_tool_output(trace, 0.0, registry=registry):
+            return await registry.call_tool("search_parameters", {"query": "Bz"})
+
+    out = asyncio.run(main())
+    (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
+    assert isinstance(out, _Result), "the agent must get its own object back"
+    assert ev["data"]["result"] == '{"results": [{"id": "cda/AC_H0_MFI/BGSM"}]}'

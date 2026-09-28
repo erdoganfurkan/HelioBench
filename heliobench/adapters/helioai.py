@@ -41,7 +41,29 @@ _MODEL_ENV = {
 }
 
 
-_TOOL_OUTPUT_LIMIT = 4000
+# How much of each tool result the trace keeps. 4000 until 2026-09-28, which cut a search
+# result before its accepted id often enough that the report had to count such runs apart;
+# the limit now travels in every `tool_output` event, so a reader never has to know which
+# version of the harness wrote a trace to know where its cut was.
+_TOOL_OUTPUT_LIMIT = 16000
+
+
+def _model_text(result) -> str:
+    """The text the model was shown for a tool result.
+
+    Up to HelioAI 0.3 the registry returned that string. From 0.4.0 (`e6a2e7f`) it returns a
+    `ToolResult`, whose `for_llm()` is the model's text; `str()` of it is a dataclass repr,
+    and the 0.4.0 candidate sweep of 2026-09-23 recorded that repr in all 47 traces —
+    retrievable ids inside a Python dict literal, and a truncation flag measured on the
+    wrong string.
+    """
+    if isinstance(result, str):
+        return result
+    for_llm = getattr(result, "for_llm", None)
+    if callable(for_llm):
+        return str(for_llm())
+    return str(result)
+
 
 # The recorder of the run whose task is executing, or None outside any run. HelioAI keeps its
 # own per-session state (`helioai.workspace`) in context variables for the same reason: with
@@ -122,7 +144,7 @@ def _recording_tool_output(trace: Trace, t0: float, registry=None):
         from helioai.tools.registry import registry
 
     def record(name: str, arguments: dict | None, result) -> None:
-        text = result if isinstance(result, str) else str(result)
+        text = _model_text(result)
         trace.events.append(
             {
                 "event": "tool_output",
@@ -131,6 +153,7 @@ def _recording_tool_output(trace: Trace, t0: float, registry=None):
                     "arguments": arguments,
                     "result": text[:_TOOL_OUTPUT_LIMIT],
                     "truncated": len(text) > _TOOL_OUTPUT_LIMIT,
+                    "limit": _TOOL_OUTPUT_LIMIT,
                 },
                 "t": round(time.monotonic() - t0, 3),
             }

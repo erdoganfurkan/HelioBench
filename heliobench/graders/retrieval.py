@@ -71,7 +71,7 @@ def grade(task: Task, trace: Trace) -> Result:
         e for e in trace.events_named("tool_output") if "search" in str(e["data"].get("name", ""))
     ]
     searched = bool(outputs)
-    # The adapter keeps the first 4000 characters of what a tool returned. An accepted id
+    # The adapter keeps only the head of what a tool returned (its `limit`). An accepted id
     # beyond that cut was shown to the agent and not to us, so a missing rank here is not
     # evidence it was never retrieved — the report leaves truncated runs out of recall@k.
     truncated = any(e["data"].get("truncated") for e in outputs)

@@ -20,7 +20,7 @@ than that spread has not been shown to move anything.
         --run results/pr15_fix-dataset-alias/20260913T151025Z_helioai \\
         --processes 5 --out /tmp/replay.json
 
-Two things this does not reproduce, on purpose. The adapter keeps the first 4000 characters
+Two things this does not reproduce, on purpose. The adapter keeps the first `limit` characters
 of a tool result, so a recorded rank can be missing where the replay finds one; the replay
 sees the whole result. And the index is whatever sits at `--index` today, not the one the
 run saw — the manifest records its size so the two can be told apart.
