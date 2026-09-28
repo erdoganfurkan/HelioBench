@@ -3,7 +3,8 @@
 Three tiers, ordered from the least arguable to the most.
 
 **n1 — retrieval (30 tasks).** Resolving a physical quantity to an archived product
-identifier out of 82 433. The verdict is string equality against identifiers enumerated from
+identifier out of some 82 000 (82 433 when the keys were first enumerated, 82 266 in the
+index of 2026-09-28 — which is why `verify` holds every key to the index a run uses). The verdict is string equality against identifiers enumerated from
 the index by `scripts/n1_key_candidates.py`, so there is no physics to dispute. This is the
 tier no existing benchmark covers, and the one closest to what makes a heliophysics agent
 useful or useless.
