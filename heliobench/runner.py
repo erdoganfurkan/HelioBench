@@ -44,6 +44,13 @@ def make_record(task: Task, trace: Trace, run: int) -> dict:
     }
 
 
+def _task_bytes(t: Task) -> bytes:
+    return json.dumps(
+        {"id": t.id, "prompt": t.prompt, "expected": t.expected, "tolerance": t.tolerance},
+        sort_keys=True,
+    ).encode()
+
+
 def task_set_digest(tasks: list[Task]) -> str:
     """A fingerprint of exactly which questions were asked, in which wording.
 
@@ -52,13 +59,35 @@ def task_set_digest(tasks: list[Task]) -> str:
     """
     h = hashlib.sha256()
     for t in sorted(tasks, key=lambda t: t.id):
-        h.update(
-            json.dumps(
-                {"id": t.id, "prompt": t.prompt, "expected": t.expected, "tolerance": t.tolerance},
-                sort_keys=True,
-            ).encode()
-        )
+        h.update(_task_bytes(t))
     return h.hexdigest()[:16]
+
+
+def task_digests(tasks: list[Task]) -> dict[str, str]:
+    """The same fingerprint, one per task.
+
+    The set digest says whether two runs asked the same questions; these say which ones
+    they share. That is what lets two runs be compared on a tier, or on the tasks they have
+    in common, without the comparison trusting that a task id still means the same question.
+    """
+    return {t.id: hashlib.sha256(_task_bytes(t)).hexdigest()[:16] for t in tasks}
+
+
+def fixture_digests(tasks: list[Task], fixtures: Path) -> dict[str, str]:
+    """A fingerprint of the frozen data each fixture the tasks use served to the agent.
+
+    Not part of `task_set_digest`: re-freezing a fixture that yields the same keys must not
+    orphan every stored run. It is recorded so that a fixture that did change is visible.
+    """
+    out: dict[str, str] = {}
+    for name in sorted({t.fixture for t in tasks if t.fixture}):
+        root = Path(fixtures) / name
+        h = hashlib.sha256()
+        for f in sorted(p for p in root.rglob("*") if p.is_file()):
+            h.update(str(f.relative_to(root)).encode())
+            h.update(f.read_bytes())
+        out[name] = h.hexdigest()[:16] if root.is_dir() else "missing"
+    return out
 
 
 def new_run_dir(root: Path, agent_name: str) -> Path:
@@ -151,6 +180,8 @@ def run(
         "jobs": jobs,
         "n_tasks": len(tasks),
         "task_set_digest": task_set_digest(tasks),
+        "task_digests": task_digests(tasks),
+        "fixture_digests": fixture_digests(tasks, fixtures),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "agent": agent.describe(),
@@ -211,6 +242,7 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
             "runs": max((r["run"] for r in records), default=0) + 1,
             "n_tasks": len(seen),
             "task_set_digest": task_set_digest([by_id[t] for t in sorted(seen)]),
+            "task_digests": task_digests([by_id[t] for t in sorted(seen)]),
             "skipped_traces": sorted(set(skipped)),
             "unscored_traces": unscored,
         }

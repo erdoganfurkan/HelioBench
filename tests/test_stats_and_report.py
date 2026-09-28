@@ -195,3 +195,15 @@ def test_a_regrade_leaves_a_trace_whose_prompt_changed_unscored(tmp_path):
         {"task_id": tasks[0].id, "run": 0, "reason": "the prompt changed since this run"}
     ]
     assert res["meta"]["task_set_digest"] == task_set_digest([tasks[1]])
+
+
+def test_meta_records_a_digest_per_task_and_per_fixture(tmp_path):
+    from heliobench.runner import fixture_digests, task_digests
+
+    tasks = load_tasks("tasks", tiers=["n3"])[:2]
+    meta = run(NullAgent(), tasks, tmp_path / "r", runs=1)["meta"]
+    assert meta["task_digests"] == task_digests(tasks)
+    assert set(meta["fixture_digests"]) == {t.fixture for t in tasks}
+    assert meta["fixture_digests"] == fixture_digests(tasks, __import__("pathlib").Path("fixtures"))
+    # The set digest is unchanged by this: stored runs must keep comparing.
+    assert meta["task_set_digest"] == task_set_digest(tasks)

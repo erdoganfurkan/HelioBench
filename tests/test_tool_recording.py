@@ -126,3 +126,16 @@ def test_artifacts_are_copied_out_of_the_workspace_before_it_goes(tmp_path):
     assert (tmp_path / "run" / "artifacts" / "figs" / "b.png").read_bytes() == b"png"
     assert artifacts[1]["kept"] == [str(tmp_path / "run" / "artifacts" / "figs" / "b.png")]
     assert artifacts[0]["code_path"] == str(ws / "code_0.py"), "what the agent said stays"
+
+
+def test_the_index_digest_moves_when_a_byte_does(tmp_path):
+    from heliobench.adapters.helioai import environment_digest, tree_digest
+
+    (tmp_path / "idx").mkdir()
+    (tmp_path / "idx" / "chroma.sqlite3").write_bytes(b"a")
+    first = tree_digest(tmp_path / "idx")
+    (tmp_path / "idx" / "chroma.sqlite3").write_bytes(b"b")
+    assert tree_digest(tmp_path / "idx") != first
+    assert tree_digest(tmp_path / "nope") == "missing"
+    env = environment_digest()
+    assert len(env["env_digest"]) == 16 and "numpy" in env["dependencies"]

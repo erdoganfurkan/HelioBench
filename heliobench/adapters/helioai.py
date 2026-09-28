@@ -250,6 +250,48 @@ def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     )
 
 
+def tree_digest(root: Path) -> str:
+    """16 hex of sha256 over every file under `root`, or `"missing"`."""
+    import hashlib
+
+    root = Path(root)
+    if not root.is_dir():
+        return "missing"
+    h = hashlib.sha256()
+    for f in sorted(p for p in root.rglob("*") if p.is_file()):
+        h.update(str(f.relative_to(root)).encode())
+        with f.open("rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+    return h.hexdigest()[:16]
+
+
+# The dependencies that decide what the agent sends and what comes back. `--agent-ref` pins
+# the agent's commit but its dependencies are resolved at install time, so the same commit
+# installed a month apart is not the same arm unless these say so.
+_KEY_DISTRIBUTIONS = ("openai", "httpx", "chromadb", "speasy", "numpy", "plasmapy", "torch")
+
+
+def environment_digest() -> dict:
+    """The installed distributions, as a digest over all of them and the key versions."""
+    import hashlib
+    from importlib import metadata
+
+    pins = sorted(
+        f"{(d.metadata['Name'] or '').lower()}=={d.version}" for d in metadata.distributions()
+    )
+    versions = {}
+    for name in _KEY_DISTRIBUTIONS:
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return {
+        "env_digest": hashlib.sha256("\n".join(pins).encode()).hexdigest()[:16],
+        "dependencies": versions,
+    }
+
+
 def keep_artifacts(artifacts: list[dict], session_dir: Path, dest: Path) -> int:
     """Copy the files a run's artifacts point at out of its workspace, before it is deleted.
 
@@ -367,7 +409,9 @@ class HelioAIAgent:
             "max_iterations": settings.agent.max_iterations,
             "restricted": self.restricted,
             "index_dir": str(settings.rag.chroma_dir),
+            "index_digest": self._index_digest(settings.rag.chroma_dir),
             "index_size": self._index_size(),
+            **environment_digest(),
             **self._behaviour(settings),
         }
 
@@ -416,6 +460,17 @@ class HelioAIAgent:
         from helioai.config import settings
 
         return dict(getattr(settings.agent, "role_models", {}) or {})
+
+    def _index_digest(self, index_dir) -> str:
+        """sha256 of every file of the index, once per process, before anything opens it.
+
+        `index_size` told the two September arms apart only by luck: 82 244 against 82 266
+        products. Two indexes of equal size can rank differently, and the n1 rank is the
+        metric that reads the ranking.
+        """
+        if getattr(self, "_index_digest_cache", None) is None:
+            self._index_digest_cache = tree_digest(Path(index_dir))
+        return self._index_digest_cache
 
     def _index_size(self) -> int:
         """Number of indexed products, or -1 when the index cannot be opened."""
