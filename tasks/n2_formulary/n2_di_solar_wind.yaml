@@ -11,6 +11,6 @@ expected:
   - d_i
   - di
 tolerance:
-  rel: 0.05
+  rel: 0.01
 provenance: plasmapy.formulary.inertial_length via helioai.tools.plasmapy_tools.inertial_length
 licence: internal

@@ -62,6 +62,16 @@ def test_an_n3_answer_five_percent_off_fails(task):
     assert not grade(task, Trace(task_id=task.id, prompt="p", agent="wrong", reply=reply)).passed
 
 
+@pytest.mark.parametrize("task", [t for t in TASKS if t.tier == "n2"], ids=lambda t: t.id)
+def test_an_n2_answer_two_percent_off_fails(task):
+    # n2 truth is PlasmaPy on the prompt's own inputs. Across the 68 stored passes the worst
+    # deviation was 0.224%; 5% accepted a value computed with the wrong constant.
+    wrong = float(task.expected["value"]) * 1.02
+    near = (task.expected.get("near") or ["value"])[0]
+    reply = f"The {near} is {wrong} {task.expected.get('units', '')}".strip() + "."
+    assert not grade(task, Trace(task_id=task.id, prompt="p", agent="wrong", reply=reply)).passed
+
+
 def test_every_task_declares_where_its_truth_came_from():
     for t in TASKS:
         assert t.provenance.strip(), f"{t.id} has no provenance"

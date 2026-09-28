@@ -10,6 +10,6 @@ expected:
   - cyclotron
   - electron
 tolerance:
-  rel: 0.05
+  rel: 0.01
 provenance: plasmapy.formulary.gyrofrequency (electron) via helioai.tools.plasmapy_tools.gyrofrequency
 licence: internal
