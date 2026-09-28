@@ -87,3 +87,12 @@ the reasoning behind each item below; this file is just the trackable slice of i
 - [ ] `numeric.py` folds unit spellings but never scales (nT ↔ pT): deliberate and
       documented, but worth revisiting if units are added. The `near` ±120-char window is
       fragile to rephrasing; a robustness test would pin it.
+- [ ] **Token meter is blind to a streaming agent (found 2026-09-23, arm B of the 0.3.0 vs
+      0.4.0-candidate comparison)**: HelioAI `073eaad` calls `chat.completions.create(stream=True,
+      stream_options={"include_usage": True})`, so `counting_create` receives an `AsyncStream` with
+      no `.usage`, marks the run `exact=False` and counts nothing — the report printed
+      `Prompt tokens ⚠️ not exact 0` over 47 tasks. The agent's own `usage` rows cannot be read
+      back either: `HelioAIAgent.run` does `store.reset` after each task. Fix in `usage.py`: when
+      the response is an async stream, return a wrapper that yields every chunk unchanged and
+      records `chunk.usage` when a chunk carries one (the last one does); `calls += 1` at the end.
+      Arm A (`v0.3.0`, non-streaming) was metered normally: 1 065 450 / 98 387.
