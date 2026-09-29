@@ -225,9 +225,11 @@ def _resumable(out_dir: Path, tasks, agent) -> int:
         raise ValueError(f"{out_dir} already completed")
     if meta.get("task_set_digest") != task_set_digest(tasks):
         raise ValueError("the task selection differs from the interrupted run's")
+    from heliobench.compare import _ARM_KEYS
+
     was, now = meta.get("agent", {}), agent.describe()
-    for key in ("agent", "agent_version", "agent_ref", "provider", "model", "index_digest"):
-        if was.get(key) != now.get(key):
+    for key in ("agent", *_ARM_KEYS):
+        if (key in was or key in now) and was.get(key) != now.get(key):
             raise ValueError(f"{key} was {was.get(key)!r}, is now {now.get(key)!r}")
     return int(meta.get("runs", 1))
 

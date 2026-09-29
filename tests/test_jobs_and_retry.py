@@ -274,3 +274,23 @@ def test_resume_refuses_another_task_selection(tmp_path, capsys):
     assert main(["run", "--tier", "n3", "--resume", str(out)]) == 1
     assert "task selection differs" in capsys.readouterr().err
     assert main(["run", "--tier", "n2", "--resume", str(out)]) == 0
+
+
+def test_resume_refuses_an_arm_whose_behaviour_changed(tmp_path):
+    from heliobench.cli import _resumable
+
+    class Configured(_DiesAfter):
+        def __init__(self, n, experiments):
+            super().__init__(n)
+            self.experiments = experiments
+
+        def describe(self):
+            return {**super().describe(), "experiments": self.experiments}
+
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(Configured(1, ["final_answer"]), tasks, out, runs=1, scratch=tmp_path / "s")
+    with pytest.raises(ValueError, match="experiments"):
+        _resumable(out, tasks, Configured(9, []))
+    assert _resumable(out, tasks, Configured(9, ["final_answer"])) == 1
