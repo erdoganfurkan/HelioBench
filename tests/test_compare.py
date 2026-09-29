@@ -178,3 +178,14 @@ def load(d):
     from heliobench.compare import load_run
 
     return load_run(d)
+
+
+def test_an_errored_repetition_does_not_withhold_the_token_pairing(tmp_path):
+    # A stream that dies half-way is errored *and* inexact; it is out of the comparison.
+    a = _run(tmp_path, "a", "same", {"t": [True, None]})
+    b = _run(tmp_path, "b", "same", {"t": [True]})
+    exact = {"tokens_exact": True, "tokens_prompt": 5}
+    _with(a, metrics=lambda r: exact if r["outcome"] != "errored" else {"tokens_exact": False})
+    _with(b, metrics=lambda r: exact)
+    (tokens,) = [m for m in compare(load(a), load(b))["process"] if "Tokens" in m["metric"]]
+    assert "withheld" not in tokens and tokens["n"] == 1

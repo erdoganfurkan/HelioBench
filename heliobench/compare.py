@@ -191,7 +191,11 @@ def paired_process(meta_a, rec_a, meta_b, rec_b, ids) -> list[dict]:
             inexact = [
                 n
                 for n, recs in (("A", rec_a), ("B", rec_b))
-                if not all((r.get("metrics") or {}).get("tokens_exact", True) for r in recs)
+                if not all(
+                    (r.get("metrics") or {}).get("tokens_exact", True)
+                    for r in recs
+                    if outcome_of(r) is not None
+                )
             ]
             if inexact:
                 out.append(
