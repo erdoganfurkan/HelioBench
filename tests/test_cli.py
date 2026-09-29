@@ -59,6 +59,8 @@ def test_agent_env_takes_only_helioai_variables_the_adapter_does_not_own():
         ("HELIOAI_DATA_DIR=/tmp", "set by the adapter"),
         ("HELIOAI_OPENCODE_MODEL=m", "set by the adapter"),
         ("HELIOAI_EXPERIMENTS", "KEY=VALUE"),
+        ("HELIOAI_MCP_TOKEN=abc", "credential"),
+        ("HELIOAI_DEV_TOKEN=abc", "credential"),
     ]:
         with pytest.raises(ValueError, match=why):
             parse_agent_env([bad])

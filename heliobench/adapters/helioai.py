@@ -79,8 +79,9 @@ _SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "HEADERS", "USERS")
 def parse_agent_env(pairs: list[str] | None) -> dict[str, str]:
     """`["HELIOAI_EXPERIMENTS=final_answer", ...]` → a dict, refusing what it must not move.
 
-    Only `HELIOAI_*` names are taken, so a credential can never be passed this way and end up
-    in a report header; and not the ones the adapter derives from its own arguments.
+    Only `HELIOAI_*` names are taken, none that looks like a credential (`HELIOAI_MCP_TOKEN`,
+    `HELIOAI_DEV_TOKEN`: everything here is printed in the report header), and not the ones
+    the adapter derives from its own arguments.
     """
     out: dict[str, str] = {}
     for pair in pairs or []:
@@ -92,6 +93,8 @@ def parse_agent_env(pairs: list[str] | None) -> dict[str, str]:
             raise ValueError(f"--agent-env only sets HELIOAI_* variables, not {key!r}")
         if key in _ADAPTER_OWNED or key in _MODEL_ENV.values():
             raise ValueError(f"{key} is set by the adapter from its own flags")
+        if any(m in key for m in _SECRET_MARKERS):
+            raise ValueError(f"{key} looks like a credential; it would be printed in the header")
         out[key] = value
     return out
 
@@ -250,19 +253,41 @@ def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     )
 
 
-def tree_digest(root: Path) -> str:
-    """16 hex of sha256 over every file under `root`, or `"missing"`."""
-    import hashlib
+_INDEX_ROWS = """
+select e.embedding_id,
+       max(case when m.key = 'chroma:document' then m.string_value end)
+from embeddings e
+join segments s on s.id = e.segment_id
+join embedding_metadata m on m.id = e.id
+where s.collection = (select id from collections where name = 'speasy_catalog')
+group by e.id
+order by e.embedding_id
+"""
 
-    root = Path(root)
-    if not root.is_dir():
+
+def index_digest(index_dir: Path) -> str:
+    """16 hex of sha256 over every `(id, document)` the index holds, or `"missing"`.
+
+    The content, not the files: Chroma rewrites its sqlite file and its HNSW segments each
+    time it opens them, so a digest of the bytes differed between two processes reading the
+    same index — every `--resume` refused and every comparison listed the index as changed.
+    The rows are what the search ranks and what the n1 keys were enumerated from. Read-only.
+    """
+    import hashlib
+    import sqlite3
+
+    db = Path(index_dir) / "chroma.sqlite3"
+    if not db.is_file():
         return "missing"
     h = hashlib.sha256()
-    for f in sorted(p for p in root.rglob("*") if p.is_file()):
-        h.update(str(f.relative_to(root)).encode())
-        with f.open("rb") as fh:
-            for block in iter(lambda: fh.read(1 << 20), b""):
-                h.update(block)
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        for pid, doc in con.execute(_INDEX_ROWS):
+            h.update(f"{pid}\x00{doc or ''}\n".encode())
+    except sqlite3.Error:
+        return "unreadable"
+    finally:
+        con.close()
     return h.hexdigest()[:16]
 
 
@@ -463,14 +488,14 @@ class HelioAIAgent:
         return dict(getattr(settings.agent, "role_models", {}) or {})
 
     def _index_digest(self, index_dir) -> str:
-        """sha256 of every file of the index, once per process, before anything opens it.
+        """The index's content digest (`index_digest`), once per process.
 
         `index_size` told the two September arms apart only by luck: 82 244 against 82 266
         products. Two indexes of equal size can rank differently, and the n1 rank is the
         metric that reads the ranking.
         """
         if getattr(self, "_index_digest_cache", None) is None:
-            self._index_digest_cache = tree_digest(Path(index_dir))
+            self._index_digest_cache = index_digest(Path(index_dir))
         return self._index_digest_cache
 
     def missing_ids(self, ids: list[str]) -> set[str] | None:
