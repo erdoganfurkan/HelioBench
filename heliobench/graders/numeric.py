@@ -81,7 +81,7 @@ DURATION_UNITS = frozenset(
 # A sign only where nothing numeric precedes it, so `400-450 km/s` is a range and not 400
 # and −450; digits grouped by commas in threes; an exponent written `e-3` or `× 10^-3`.
 _MANTISSA = r"(?<![\w.,])(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?)"
-_TIMES_TEN = r"(?:\s*[×x·*]\s*10\^\(?([-+]?\d+)\)?)?"
+_TIMES_TEN = r"(?:\s*[×x·*]\s*10(?:\^|\*\*)\(?([-+]?\d+)\)?)?"
 _NUMBER = re.compile(rf"{_MANTISSA}{_TIMES_TEN}\s*({_UNIT_PATTERN})?(?![\w/^-])")
 
 _SUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
@@ -117,8 +117,9 @@ def normalise(text: str) -> str:
     for pattern, repl in _LATEX:
         text = pattern.sub(repl, text)
     text = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]+", lambda m: "^" + m.group(0).translate(_SUPERSCRIPT), text)
-    # Markdown bold is not an exponent: `**87.5 km/s**` must not read as `** 87.5`.
-    text = re.sub(r"(?<!cm)\*\*", "  ", text)
+    # Markdown bold is not an exponent: `**87.5 km/s**` must not read as `** 87.5`. Python's
+    # exponent is: `cm**-3` and `10**2` keep theirs.
+    text = re.sub(r"(?<!cm)(?<!10)\*\*", "  ", text)
     return _DATETIME.sub(lambda m: " " * len(m.group(0)), text)
 
 
@@ -154,13 +155,17 @@ def _within(found: float, want: float, tol: dict) -> bool:
 
 
 def _near_pattern(word: str) -> re.Pattern:
-    """`word` as a whole token of the lowercased reply.
+    """`word` where a token of the lowercased reply starts, whole if it is two letters or less.
 
     A substring match made `di` match *distance* and *indicates* and `va` match *value*, so
-    the keyword window covered most replies. Letters and digits bound a token; `_` and `|` do
-    not, so `v_a` and `|b|` still match themselves.
+    the keyword window covered most replies. Keys hold stems (`densit`, `alfv`, `gyro`), so a
+    longer keyword only has to start a token; a one- or two-letter symbol (`di`, `va`, `θ`)
+    must be the whole token, or it is a prefix of half the dictionary. Letters and digits
+    bound a token; `_` and `|` do not, so `v_a` and `|b|` still match themselves.
     """
-    return re.compile(rf"(?<![a-z0-9]){re.escape(word.lower())}(?![a-z0-9])")
+    w = re.escape(word.lower())
+    end = r"(?![a-z0-9])" if len(word) <= 2 else ""
+    return re.compile(rf"(?<![a-z0-9]){w}{end}")
 
 
 def candidates_with_text(text: str, units: str, near: list[str] | None) -> list[tuple[str, float]]:

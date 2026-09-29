@@ -271,6 +271,8 @@ def test_n1_detail_reports_hedging_and_ids_no_search_returned_without_changing_t
         ("B = -9.7 nT (southward)", "nT", None, [-9.7]),
         ("B = 9.7 nanotesla", "nT", None, [9.7]),
         ("f_ce = 559.8 hertz", "Hz", None, [559.8]),
+        ("Debye length λ_D = 2.351*10**2 m", "m", ["debye"], [235.1]),
+        ("n = 17.77 cm**-3", "cm-3", None, [17.77]),
     ],
 )
 def test_the_spellings_of_a_defensible_answer_are_read(text, units, near, want):
@@ -302,3 +304,17 @@ def test_near_matches_whole_tokens_only():
     assert candidates(text, "km", ["di", "d_i"]) == [86.1]
     assert candidates("d_i = 86.1 km", "km", ["d_i"]) == [86.1]
     assert candidates("|B| = 9.7 nT", "nT", ["|b|"]) == [9.7]
+
+
+def test_a_stem_keyword_starts_a_token_and_a_short_symbol_is_a_whole_one():
+    # Keys store stems: `densit`, `alfv`, `gyro`. A whole-token rule broke all of them.
+    pad = " filler" * 40
+    text = "Upstream interval used as requested." + pad + " The mean density is 17.77 cm^-3."
+    assert candidates(text, "cm-3", ["densit", "upstream"]) == [17.77]
+    assert candidates(
+        "Upstream." + pad + " Alfven speed 87.5 km/s", "km/s", ["alfv", "upstream"]
+    ) == [87.5]
+    assert candidates("x." + pad + " Alfvén speed 87.5 km/s", "km/s", ["alfv", "x"]) == [87.5]
+    assert candidates("y." + pad + " electron gyrofrequency 559.8 Hz", "Hz", ["gyro", "y"]) == [
+        559.8
+    ]
