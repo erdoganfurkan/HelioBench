@@ -29,6 +29,24 @@ it was the key, not the agent.
   keywords match whole tokens: `di` matched *distance*. No stored verdict moves.
 - The provenance check compares units the way the numeric grader does (case-folded).
 
+### Fixed
+Found by review after the 0.2.0 commit, in features 0.2.0 introduced:
+- Against HelioAI the harness had stopped retrying connection resets and timeouts: HelioAI's
+  `call_with_retry` retries only status-bearing errors and its clients have `max_retries=0`.
+  Only 408/429/5xx are left to the agent now.
+- `index_digest` hashed the index's files, which Chroma rewrites on every open, so it
+  differed between two processes: `--resume` always refused and `compare` always listed the
+  index. It hashes the `(id, document)` rows now.
+- `--resume` compared the model but not the behaviour settings; it compares every arm key
+  `compare` lists.
+- `--agent-env HELIOAI_MCP_TOKEN=…` would have printed the token in the header; names that
+  look like credentials are refused.
+- An errored repetition — inexact by construction — withheld the paired token comparison it
+  was already excluded from.
+- `near` stems (`densit`, `alfv`, `gyro`) stopped matching under the whole-token rule of the
+  parser change below; a keyword of three letters or more only has to start a token.
+- `2.351*10**2 m` is read as 235.1 m.
+
 ### Added
 - n1 tasks may record `key_query` — the patterns their key was enumerated with — and
   `key_excluded`, each rejected candidate pattern with its reason; both outside the digest.
