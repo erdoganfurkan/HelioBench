@@ -174,30 +174,55 @@ def test_backoff_layers_over_the_token_meter_and_counts_only_what_returned():
     assert meter.usage.prompt == 10 and meter.usage.calls == 1 and meter.usage.exact
 
 
-def test_record_only_backoff_leaves_retrying_to_the_agent_and_still_records():
-    # HelioAI retries its own calls around this method; retrying here too multiplied them.
-    create, state = _flaky(99)
+# The SDK's class name, which is what `is_retriable` reads, with the SDK's status attribute.
+_Status429 = type("RateLimitError", (Exception,), {"status_code": 429})
+
+
+class APIConnectionError(Exception):
+    pass
+
+
+def _client_of(create):
     completions = types.SimpleNamespace(create=create)
-    client = types.SimpleNamespace(
+    return types.SimpleNamespace(
         _client=types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
     )
+
+
+def test_a_status_bearing_error_is_left_to_the_agent_and_still_recorded():
+    # HelioAI retries 408/429/5xx around this method; retrying here too multiplied them.
+    create, state = _flaky(99, exc=_Status429)
+    client = _client_of(create)
     trace = Trace(task_id="t", prompt="p", agent="a")
-    attach_backoff(client, trace, t0=0.0, attempts=1)
-    with pytest.raises(RateLimitError):
+    attach_backoff(client, trace, t0=0.0, defer_status=True)
+    with pytest.raises(_Status429):
         asyncio.run(client._client.chat.completions.create(model="m"))
     assert state["calls"] == 1
     (ev,) = trace.events_named("retry")
     assert ev["data"]["by"] == "agent" and ev["data"]["error"] == "RateLimitError"
 
 
-def test_record_only_backoff_does_not_record_the_agents_own_faults():
-    create, _ = _flaky(1, exc=BadRequestError)
-    completions = types.SimpleNamespace(create=create)
-    client = types.SimpleNamespace(
-        _client=types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
-    )
+def test_a_connection_error_is_still_retried_when_the_agent_retries_only_statuses():
+    # HelioAI's clients have max_retries=0 and call_with_retry skips status-less errors:
+    # deferring these too left a dropped connection retried by nobody.
+    create, state = _flaky(2, exc=APIConnectionError)
+    client = _client_of(create)
     trace = Trace(task_id="t", prompt="p", agent="a")
-    attach_backoff(client, trace, t0=0.0, attempts=1)
+
+    async def no_sleep(s):
+        pass
+
+    attach_backoff(client, trace, t0=0.0, defer_status=True, sleep=no_sleep)
+    assert asyncio.run(client._client.chat.completions.create(model="m")).ok
+    assert state["calls"] == 3
+    assert [e["data"]["by"] for e in trace.events_named("retry")] == ["harness", "harness"]
+
+
+def test_deferral_does_not_record_the_agents_own_faults():
+    create, _ = _flaky(1, exc=BadRequestError)
+    client = _client_of(create)
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    attach_backoff(client, trace, t0=0.0, defer_status=True)
     with pytest.raises(BadRequestError):
         asyncio.run(client._client.chat.completions.create(model="m"))
     assert trace.events_named("retry") == []

@@ -66,17 +66,24 @@ async def with_backoff(
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def attach_backoff(llm_client, trace: Trace, t0: float, **policy) -> None:
+def _has_status(exc: BaseException) -> bool:
+    return getattr(exc, "status_code", None) is not None or getattr(exc, "status", None) is not None
+
+
+def attach_backoff(
+    llm_client, trace: Trace, t0: float, *, defer_status: bool = False, **policy
+) -> None:
     """Wrap the SDK call on `llm_client` with `with_backoff`, recording retries in `trace`.
 
     Layered over whatever already wraps `create` — the token meter, in practice — so every
     attempt that returns is counted and every one that raises is retried.
 
-    With `attempts=1` nothing is retried here and every transient failure is still recorded,
-    with `"by": "agent"`: that is for an agent that retries its own calls, as HelioAI does
-    with `call_with_retry` around this very method. Retrying at both levels multiplies — four
-    agent attempts of five harness attempts is twenty requests for one turn — while
-    recording at this level is the only place the harness sees them at all.
+    `defer_status` is for an agent that retries its own calls, as HelioAI does with
+    `call_with_retry` around this very method — but only for errors carrying an HTTP status
+    (408, 429, 5xx); its clients are built with `max_retries=0`, so a connection reset or a
+    timeout is retried by nobody else. Those stay retried here. A status-bearing transient
+    error is left to the agent, and recorded with `"by": "agent"`: stacking both levels made
+    one rate limit up to twenty requests.
     """
     import time
 
@@ -86,29 +93,41 @@ def attach_backoff(llm_client, trace: Trace, t0: float, **policy) -> None:
     if create is None:
         return
 
-    def record(attempt: int, exc: BaseException, delay: float) -> None:
+    def record(attempt: int, exc: BaseException, delay: float, by: str = "harness") -> None:
         trace.events.append(
             {
                 "event": "retry",
-                "data": {"attempt": attempt, "error": type(exc).__name__, "delay_s": delay},
+                "data": {
+                    "attempt": attempt,
+                    "error": type(exc).__name__,
+                    "delay_s": delay,
+                    "by": by,
+                },
                 "t": round(time.monotonic() - t0, 3),
             }
         )
 
-    agent_retries = policy.get("attempts", 5) == 1
+    async def once(**kwargs):
+        try:
+            return await create(**kwargs)
+        except Exception as e:
+            if defer_status and is_retriable(e) and _has_status(e):
+                record(1, e, 0.0, by="agent")
+                raise _Deferred(e) from e
+            raise
 
     async def retrying_create(**kwargs):
         try:
-            return await with_backoff(create, on_retry=record, **policy, **kwargs)
-        except Exception as e:
-            if agent_retries and is_retriable(e):
-                trace.events.append(
-                    {
-                        "event": "retry",
-                        "data": {"attempt": 1, "error": type(e).__name__, "by": "agent"},
-                        "t": round(time.monotonic() - t0, 3),
-                    }
-                )
-            raise
+            return await with_backoff(once, on_retry=record, **policy, **kwargs)
+        except _Deferred as d:
+            raise d.original from None
 
     completions.create = retrying_create
+
+
+class _Deferred(Exception):
+    """Carries an error past `with_backoff` untried: the agent retries it."""
+
+    def __init__(self, original: BaseException) -> None:
+        super().__init__(str(original))
+        self.original = original

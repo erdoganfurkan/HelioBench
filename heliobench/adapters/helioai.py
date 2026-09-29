@@ -443,17 +443,18 @@ class HelioAIAgent:
 
     @staticmethod
     def _backoff_policy() -> dict:
-        """Record-only when HelioAI retries its own provider calls, harness backoff otherwise.
+        """Leave status-bearing retries to HelioAI where it makes them, keep the rest here.
 
         HelioAI wraps every SDK call in `call_with_retry` (4 attempts, honouring Retry-After)
-        in the versions that have it; stacking the harness's 5 inside it made one rate limit
-        up to twenty requests.
+        for 408/429/5xx; stacking the harness's 5 inside it made one rate limit up to twenty
+        requests. Connection resets and timeouts carry no status, HelioAI does not retry them
+        and its SDK clients have `max_retries=0`, so the harness still does.
         """
         try:
             from helioai.core.llm.base import call_with_retry  # noqa: F401
         except ImportError:
             return {}
-        return {"attempts": 1}
+        return {"defer_status": True}
 
     def _role_models(self) -> dict:
         """Sub-agent roles HelioAI runs on a client of their own, as it parsed them."""
