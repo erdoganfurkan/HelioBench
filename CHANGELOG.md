@@ -76,8 +76,9 @@ whose prompts were hardened on 2026-08-21 and are now unscored instead of re-sco
 - `scripts/regrade_stored.py`: copy, regrade and diff every stored run; `--against` diffs
   two regrades, which is the table a scoring PR pastes.
 - `scripts/contamination_check.py`: the benchmark's answers inside what reaches the agent's
-  context — its skills, system prompts, recipes, a profile. HelioAI `release/0.4.0` carries
-  none.
+  context — its skills, system prompts, recipes, a profile. On HelioAI `release/0.4.0` it
+  finds one: the `rankine_hugoniot` recipe states "the published compression for this event
+  is 2.59" beside 2015-03-17, which is `n3_field_compression`'s answer (2.5897).
 - `scripts/retrieval_replay.py`: replay a run's recorded searches through a HelioAI checkout
   with no model; recall@k and the HNSW noise floor for zero tokens.
 - An optional `quality` on tasks (`paper_quality | proxy | candidate_interval`); the twelve

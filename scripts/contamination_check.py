@@ -50,9 +50,26 @@ def event_date(fixtures: Path, event: str) -> str | None:
     return json.loads(windows.read_text(encoding="utf-8"))["shock"][:10]
 
 
-def _value_pattern(value: float) -> re.Pattern:
-    text = f"{value:g}"
-    return re.compile(rf"(?<![\d.]){re.escape(text)}(?![\d])")
+def _spellings_of(value: float, text: str) -> list[str]:
+    """Numbers in `text` that are `value` rounded to the digits they print.
+
+    `409.9881`, `409.99` and `410.0` are all the answer; `f"{value:g}"` searched only for
+    `409.988`, which the exact spelling never contains. At least three significant digits,
+    or every `2` beside a date would be the density compression.
+    """
+    from heliobench.graders.numeric import _NUMBER, normalise, parse
+    from heliobench.graders.provenance import _tolerance
+
+    out = []
+    for m in _NUMBER.finditer(normalise(text)):
+        try:
+            raw, v, _ = parse(m)
+        except ValueError:
+            continue
+        digits = len(raw.lower().split("e")[0].replace("-", "").replace(".", "").lstrip("0"))
+        if digits >= 3 and abs(v - value) <= _tolerance(raw):
+            out.append(raw)
+    return out
 
 
 def scan(files: dict[str, str], tasks: list[Task], fixtures: Path) -> list[dict]:
@@ -71,16 +88,12 @@ def scan(files: dict[str, str], tasks: list[Task], fixtures: Path) -> list[dict]
             date = event_date(fixtures, t.event)
             if not date:
                 continue
-            value = _value_pattern(float(t.expected["value"]))
+            value = float(t.expected["value"])
             for path, text in files.items():
-                if date in text and value.search(text):
-                    hits.append(
-                        {
-                            "task": t.id,
-                            "file": path,
-                            "found": f"{t.expected['value']:g} beside {date}",
-                        }
-                    )
+                if date not in text:
+                    continue
+                for raw in _spellings_of(value, text):
+                    hits.append({"task": t.id, "file": path, "found": f"{raw} beside {date}"})
     return hits
 
 

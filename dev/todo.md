@@ -117,5 +117,11 @@ the reasoning behind each item below; this file is just the trackable slice of i
       a public release (HF, leaderboard); the n3 source data is already stated as CC0.
 - [ ] Reference run of HelioAI 0.4.0 at `--runs 3` (141 runs) on digest `8c052ae42ce9a47c`,
       with `verify --canary` first. Needs agreement on the quota.
+- [ ] `scripts/contamination_check.py` on HelioAI `release/0.4.0`: the `rankine_hugoniot`
+      recipe (comments and self-check) states the St Patrick's compression ratio 2.59 — the
+      answer of `n3_field_compression` — and a Mach number of 3.2 (`n3_mach_alfven`, 3.208,
+      under the scan's three-digit floor). An agent that reads its recipe reads the answer.
+      Either move the worked example to another event on the HelioAI side, or read that
+      task's pass as recall until it is.
 - [ ] The adapter test that reaches the network on a cache miss
       (`test_a_seeded_fixture_is_served_without_the_network`) hangs when the archive is slow.

@@ -42,6 +42,15 @@ def test_an_n3_value_counts_only_beside_the_events_date():
     assert cc.scan({"r.py": f"On 2015-03-17 theta was 1{value}"}, [n3], FIXTURES) == []
 
 
+def test_an_n3_value_is_found_at_full_precision_and_rounded():
+    # `f"{v:g}"` searched for 409.988, which `409.9881` never contains.
+    n3 = next(t for t in TASKS if t.id == "n3_speed_upstream")
+    exact = repr(float(n3.expected["value"]))
+    for spelling in (exact, f"{float(n3.expected['value']):.2f}"):
+        hits = cc.scan({"r.py": f"2015-03-17: V_up = {spelling} km/s"}, [n3], FIXTURES)
+        assert hits, spelling
+
+
 def test_the_windows_every_prompt_states_are_not_a_hit():
     # HelioAI's rankine_hugoniot self-check asserts the St Patrick's windows; so do the prompts.
     n3 = next(t for t in TASKS if t.id == "n3_theta_bn")
