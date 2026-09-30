@@ -4,7 +4,7 @@ from heliobench.graders import grade
 from heliobench.graders.numeric import candidates, same_unit
 from heliobench.graders.process import collect
 from heliobench.graders.retrieval import extract_ids, retrieved_ids
-from heliobench.tasks import Task
+from heliobench.tasks import Task, load_tasks
 from heliobench.trace import Trace
 
 
@@ -273,6 +273,11 @@ def test_n1_detail_reports_hedging_and_ids_no_search_returned_without_changing_t
         ("f_ce = 559.8 hertz", "Hz", None, [559.8]),
         ("Debye length λ_D = 2.351*10**2 m", "m", ["debye"], [235.1]),
         ("n = 17.77 cm**-3", "cm-3", None, [17.77]),
+        ("**87.5** km/s", "km/s", None, [87.5]),
+        # A bold number ending in 10 is still bold, not the base of an exponent.
+        ("upstream speed **410** km/s", "km/s", None, [410.0]),
+        ("B = **2.10** nT", "nT", None, [2.10]),
+        ("n = **7.0** cm**-3", "cm-3", None, [7.0]),
     ],
 )
 def test_the_spellings_of_a_defensible_answer_are_read(text, units, near, want):
@@ -318,3 +323,11 @@ def test_a_stem_keyword_starts_a_token_and_a_short_symbol_is_a_whole_one():
     assert candidates("y." + pad + " electron gyrofrequency 559.8 Hz", "Hz", ["gyro", "y"]) == [
         559.8
     ]
+
+
+def test_a_bold_answer_is_graded_whatever_its_last_digits():
+    # n3_speed_upstream's reference is 409.99 km/s: `**410** km/s` passed or failed on the
+    # two digits before the closing `**`, which `normalise` took for Python's `10**`.
+    task = next(t for t in load_tasks("tasks") if t.id == "n3_speed_upstream")
+    for reply in ("The upstream speed is **410** km/s.", "The upstream speed is **410 km/s**."):
+        assert grade(task, _trace(reply)).passed, reply

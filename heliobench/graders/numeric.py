@@ -118,8 +118,9 @@ def normalise(text: str) -> str:
         text = pattern.sub(repl, text)
     text = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]+", lambda m: "^" + m.group(0).translate(_SUPERSCRIPT), text)
     # Markdown bold is not an exponent: `**87.5 km/s**` must not read as `** 87.5`. Python's
-    # exponent is: `cm**-3` and `10**2` keep theirs.
-    text = re.sub(r"(?<!cm)(?<!10)\*\*", "  ", text)
+    # exponent is: `cm**-3` and `10**2` keep theirs. An exponent is followed by its power, so
+    # the closing `**` of `**410** km/s` is bold although it follows `10`.
+    text = re.sub(r"(?<!cm)(?<!10)\*\*|\*\*(?!\(?[-+]?\d)", "  ", text)
     return _DATETIME.sub(lambda m: " " * len(m.group(0)), text)
 
 

@@ -160,3 +160,10 @@ A key records its query and a reason for every candidate it rejects (`key_query`
 `key_excluded`), and `n1_key_candidates.py --check` fails on any candidate that is neither
 accepted nor excluded. Diagnose a key defect by re-running its query, not by reasoning about
 how it was probably run.
+
+`2026-09-30` | `normalise` kept a `**` after `10` as Python's `10**`, so the closing bold of
+`**410** km/s` survived and `n3_speed_upstream` (409.99 km/s) failed that reply while
+passing `**409.99** km/s`: the verdict turned on the last two digits of a correct value. |
+Tell a notation apart by what must follow it, not only by what precedes it — an exponent is
+followed by its power. Test a spelling rule on the reference values the tasks actually hold,
+not only on the one example that motivated it.

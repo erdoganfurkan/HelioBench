@@ -46,6 +46,9 @@ Found by review after the 0.2.0 commit, in features 0.2.0 introduced:
 - `near` stems (`densit`, `alfv`, `gyro`) stopped matching under the whole-token rule of the
   parser change below; a keyword of three letters or more only has to start a token.
 - `2.351*10**2 m` is read as 235.1 m.
+- A bold number ending in 10 is read: `**410** km/s` failed `n3_speed_upstream` (409.99
+  km/s) while `**409.99** km/s` passed, because the closing `**` after `10` was kept as
+  Python's `10**`. A `**` is an exponent only when a power follows it.
 
 ### Added
 - n1 tasks may record `key_query` — the patterns their key was enumerated with — and
