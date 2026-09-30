@@ -71,12 +71,19 @@ def grade(task: Task, trace: Trace) -> Result:
         e for e in trace.events_named("tool_output") if "search" in str(e["data"].get("name", ""))
     ]
     searched = bool(outputs)
-    # The adapter keeps the first 4000 characters of what a tool returned. An accepted id
+    # The adapter keeps only the head of what a tool returned (its `limit`). An accepted id
     # beyond that cut was shown to the agent and not to us, so a missing rank here is not
     # evidence it was never retrieved — the report leaves truncated runs out of recall@k.
     truncated = any(e["data"].get("truncated") for e in outputs)
     rank = next((i + 1 for i, pid in enumerate(retrieved) if pid in accepted), None)
 
+    # Reported, never gated (yet). A reply that names an accepted product beside others is
+    # a hedge the verdict does not see: 184 of the 560 stored n1 passes quote a non-accepted
+    # id too, and 20 lead with one. `first_accepted` is the stricter reading a reader can
+    # hold the pass rate against; `unreturned` are quoted ids no search in the run returned
+    # — the harness's own view of invention, which does not depend on the agent's
+    # `invalid_ids` report. Only meaningful when the run searched and nothing was cut.
+    retrieved_set = set(retrieved)
     detail = {
         "quoted": quoted,
         "accepted": sorted(accepted),
@@ -86,6 +93,9 @@ def grade(task: Task, trace: Trace) -> Result:
         "truncated": truncated,
         "retrieved": len(retrieved),
         "rank": rank,
+        "hedged": bool(hit) and any(i not in accepted for i in quoted),
+        "first_accepted": bool(quoted) and quoted[0] in accepted,
+        "unreturned": [i for i in quoted if i not in retrieved_set] if searched else [],
     }
     if invented:
         return Result(task.id, False, f"invented {len(invented)} id(s)", detail)

@@ -11,6 +11,6 @@ expected:
   - v_a
   - va
 tolerance:
-  rel: 0.05
+  rel: 0.01
 provenance: plasmapy.formulary.Alfven_speed via helioai.tools.plasmapy_tools.alfven_speed
 licence: internal

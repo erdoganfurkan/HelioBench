@@ -14,6 +14,19 @@ from pathlib import Path
 
 from heliobench import __version__
 
+# Storage roots this process created for the agent, removed when the command ends unless
+# `--keep-workspaces` asks otherwise. One passed with `--data-dir` is the caller's and stays.
+_OWNED_DATA_DIRS: list[Path] = []
+
+
+def _cleanup(args) -> None:
+    if getattr(args, "keep_workspaces", False):
+        return
+    import shutil
+
+    while _OWNED_DATA_DIRS:
+        shutil.rmtree(_OWNED_DATA_DIRS.pop(), ignore_errors=True)
+
 
 def _build_agent(args):
     if args.agent == "null":
@@ -21,14 +34,24 @@ def _build_agent(args):
 
         return NullAgent()
     if args.agent == "helioai":
-        from heliobench.adapters.helioai import HelioAIAgent
+        from heliobench.adapters.helioai import HelioAIAgent, parse_agent_env
 
+        try:
+            agent_env = parse_agent_env(getattr(args, "agent_env", None))
+        except ValueError as e:
+            raise SystemExit(str(e)) from e
+        data_dir = args.data_dir
+        if not data_dir:
+            data_dir = tempfile.mkdtemp(prefix="heliobench-")
+            _OWNED_DATA_DIRS.append(Path(data_dir))
         return HelioAIAgent(
-            Path(args.data_dir or tempfile.mkdtemp(prefix="heliobench-")),
+            Path(data_dir),
             provider=args.provider,
             model=args.model,
             index_dir=Path(args.index_dir) if args.index_dir else None,
             jobs=getattr(args, "jobs", 1),
+            agent_env=agent_env,
+            keep_workspaces=getattr(args, "keep_workspaces", False),
         )
     raise SystemExit(f"unknown agent {args.agent!r}")
 
@@ -81,11 +104,52 @@ def _cmd_verify(args) -> int:
         print(f"                ! {p}")
         problems.append(p)
 
+    problems += _check_keys_in_index(agent, tasks)
+
+    if getattr(args, "canary", False) and hasattr(agent, "canary"):
+        import asyncio
+
+        try:
+            print(f"canary        : {asyncio.run(agent.canary())}")
+        except Exception as e:
+            msg = f"the provider rejected a one-line request: {type(e).__name__}: {e}"
+            print(f"canary        : FAILED {msg}")
+            problems.append(msg)
+
     if problems:
         print(f"\n{len(problems)} problem(s) — a run now would produce numbers you cannot defend")
         return 1
     print("\nready")
     return 0
+
+
+def _check_keys_in_index(agent, tasks) -> list[str]:
+    """Hold every n1 answer key to the index the agent will search.
+
+    A task none of whose accepted ids is in the index cannot be passed, and is a problem; a
+    key that names some ids the index lacks is printed, since the task stays solvable.
+    """
+    n1 = [t for t in tasks if t.tier == "n1" and t.expected.get("ids")]
+    if not n1 or not hasattr(agent, "missing_ids"):
+        return []
+    wanted = sorted({i for t in n1 for i in t.expected["ids"]})
+    missing = agent.missing_ids(wanted)
+    if missing is None:
+        print("n1 keys       : not checked (the index cannot be asked)")
+        return []
+    problems = []
+    for t in n1:
+        gone = sorted(set(t.expected["ids"]) & missing)
+        if not gone:
+            continue
+        if len(gone) == len(t.expected["ids"]):
+            problems.append(f"{t.id}: no accepted id is in this index ({', '.join(gone)})")
+        else:
+            print(f"n1 keys       : {t.id} names ids this index lacks: {', '.join(gone)}")
+    print(
+        f"n1 keys       : {len(n1)} task(s), {len(wanted) - len(missing)}/{len(wanted)} ids found"
+    )
+    return problems
 
 
 def _cmd_run(args) -> int:
@@ -105,7 +169,15 @@ def _cmd_run(args) -> int:
         print("refusing to run; pass --force to override", file=sys.stderr)
         return 1
 
-    out_dir = new_run_dir(args.out, agent.name)
+    if args.resume:
+        out_dir = Path(args.resume)
+        try:
+            args.runs = _resumable(out_dir, tasks, agent)
+        except ValueError as e:
+            print(f"refusing to resume: {e}", file=sys.stderr)
+            return 1
+    else:
+        out_dir = new_run_dir(args.out, agent.name)
     total = len(tasks) * args.runs
     state = {"n": 0, "ok": 0, "err": 0}
 
@@ -127,11 +199,39 @@ def _cmd_run(args) -> int:
         fixtures=Path(args.fixtures),
         on_event=progress,
         jobs=args.jobs,
+        resume=bool(args.resume),
     )
     errored = f", {state['err']} errored" if state["err"] else ""
     print(f"\n{state['ok']}/{total} runs passed{errored}")
-    print(f"report: {report_mod.write(out_dir)}")
+    print(f"report: {report_mod.write(out_dir, _prices(args), html=args.html)}")
     return 0
+
+
+def _resumable(out_dir: Path, tasks, agent) -> int:
+    """The repetition count of an interrupted run this invocation may finish, or raise.
+
+    The continuation must be the same arm on the same questions; anything else is a second
+    run written into the first one's directory.
+    """
+    import json
+
+    from heliobench.runner import task_set_digest
+
+    meta_path = out_dir / "meta.json"
+    if not meta_path.is_file():
+        raise ValueError(f"{out_dir} has no meta.json")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("status") == "complete":
+        raise ValueError(f"{out_dir} already completed")
+    if meta.get("task_set_digest") != task_set_digest(tasks):
+        raise ValueError("the task selection differs from the interrupted run's")
+    from heliobench.compare import _ARM_KEYS
+
+    was, now = meta.get("agent", {}), agent.describe()
+    for key in ("agent", *_ARM_KEYS):
+        if (key in was or key in now) and was.get(key) != now.get(key):
+            raise ValueError(f"{key} was {was.get(key)!r}, is now {now.get(key)!r}")
+    return int(meta.get("runs", 1))
 
 
 def _cmd_report(args) -> int:
@@ -139,12 +239,41 @@ def _cmd_report(args) -> int:
     from heliobench.runner import regrade
 
     run_dir = Path(args.run_dir)
+    if args.out:
+        import shutil
+
+        dest = Path(args.out)
+        if dest.exists() and any(dest.iterdir()):
+            raise SystemExit(f"--out {dest} exists and is not empty")
+        shutil.copytree(run_dir, dest, dirs_exist_ok=True)
+        run_dir = dest
+    elif args.regrade and not args.in_place and _stored(run_dir):
+        raise SystemExit(
+            f"refusing to regrade {run_dir} in place: --regrade rewrites meta.json and "
+            "results.json, and runs under results/ or heliobench-results/ are the evidence. "
+            "Pass --out DIR to regrade a copy, or --in-place if this run is yours to rewrite."
+        )
     if args.regrade:
         out = regrade(run_dir, _select(args))
         print(f"re-graded {len(out['records'])} runs over {out['meta']['n_tasks']} tasks")
-    path = report_mod.write(run_dir)
+    path = report_mod.write(run_dir, _prices(args), html=args.html)
     print(path.read_text(encoding="utf-8"))
+    if args.html:
+        print(f"html: {path.with_suffix('.html')}")
     return 0
+
+
+def _prices(args) -> dict | None:
+    if not getattr(args, "prices", None):
+        return None
+    from heliobench.report import load_prices
+
+    return load_prices(Path(args.prices))
+
+
+def _stored(run_dir: Path) -> bool:
+    """Whether a run directory sits where stored evidence lives."""
+    return any(part in ("results", "heliobench-results") for part in run_dir.resolve().parts)
 
 
 def _cmd_compare(args) -> int:
@@ -152,7 +281,7 @@ def _cmd_compare(args) -> int:
 
     a, b = load_run(Path(args.run_a)), load_run(Path(args.run_b))
     try:
-        result = compare(a, b)
+        result = compare(a, b, tier=args.tier, shared=args.shared)
     except CompareError as e:
         print(f"refusing to compare: {e}", file=sys.stderr)
         return 1
@@ -199,11 +328,37 @@ def build_parser() -> argparse.ArgumentParser:
     agent_opts.add_argument("--data-dir", default=None, help="agent storage root for this run")
     agent_opts.add_argument("--fixtures", default="fixtures", help="frozen data for tier n3")
     agent_opts.add_argument(
+        "--keep-workspaces",
+        action="store_true",
+        help="keep each run's agent workspace and the temporary storage root; by default the "
+        "files its artifacts point at are copied into the run directory and the rest removed",
+    )
+    agent_opts.add_argument(
+        "--agent-env",
+        action="append",
+        default=None,
+        metavar="HELIOAI_X=VALUE",
+        help="set a HELIOAI_* variable for the agent, repeatable. Everything that changes the "
+        "agent's behaviour is otherwise pinned to HelioAI's default, and what is set here is "
+        "printed in the report header.",
+    )
+    agent_opts.add_argument(
         "--jobs",
         type=int,
         default=1,
         help="repetitions in flight at once (default 1). Above 1, per-run wall clock measures "
         "queueing rather than the agent and is not reported; cost stays exact.",
+    )
+
+    report_opts = argparse.ArgumentParser(add_help=False)
+    report_opts.add_argument(
+        "--prices",
+        default=None,
+        metavar="YAML",
+        help="USD per million tokens by model ({model: {input, output, cached}}); adds cost",
+    )
+    report_opts.add_argument(
+        "--html", action="store_true", help="also write report.html, one self-contained page"
     )
 
     ls = sub.add_parser("list", parents=[common], help="list the tasks that would run")
@@ -214,23 +369,49 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[common, agent_opts],
         help="check the environment before spending money on a run",
     )
+    ver.add_argument(
+        "--canary",
+        action="store_true",
+        help="also send one tiny request to the provider (a few dozen tokens): the only check "
+        "that catches a provider rejecting requests before a sweep spends its quota",
+    )
     ver.set_defaults(func=_cmd_verify)
 
     run_p = sub.add_parser(
-        "run", parents=[common, agent_opts], help="run an agent over the task set"
+        "run", parents=[common, agent_opts, report_opts], help="run an agent over the task set"
     )
     run_p.add_argument("--runs", type=int, default=3, help="repetitions per task (pass^k)")
     run_p.add_argument("--out", default="results", help="where to write traces and the report")
     run_p.add_argument("--force", action="store_true", help="run despite preflight problems")
+    run_p.add_argument(
+        "--resume",
+        default=None,
+        metavar="RUN_DIR",
+        help="finish an interrupted run: the repetitions whose trace is already there are "
+        "regraded, the rest are run. Same tasks and same arm, or it refuses.",
+    )
     run_p.set_defaults(func=_cmd_run)
 
-    rep = sub.add_parser("report", parents=[common], help="rebuild a report from stored traces")
+    rep = sub.add_parser(
+        "report", parents=[common, report_opts], help="rebuild a report from stored traces"
+    )
     rep.add_argument("run_dir", help="directory of a previous run")
     rep.add_argument(
         "--regrade",
         action="store_true",
         help="score the stored traces again with today's graders and task set, then report. "
         "Costs nothing: graders read traces, never the agent.",
+    )
+    rep.add_argument(
+        "--out",
+        default=None,
+        metavar="DIR",
+        help="copy the run here first and work on the copy; the way to regrade a stored run",
+    )
+    rep.add_argument(
+        "--in-place",
+        action="store_true",
+        help="allow --regrade to rewrite a run under results/ or heliobench-results/",
     )
     rep.set_defaults(func=_cmd_report)
 
@@ -242,6 +423,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cmp_p.add_argument("run_a", help="directory of the first run")
     cmp_p.add_argument("run_b", help="directory of the second run")
+    cmp_p.add_argument(
+        "--tier", choices=["n1", "n2", "n3"], default=None, help="compare one tier only"
+    )
+    cmp_p.add_argument(
+        "--shared",
+        action="store_true",
+        help="compare the tasks both runs asked in the same wording, by per-task digest, "
+        "and list the ones left out",
+    )
     cmp_p.set_defaults(func=_cmd_compare)
 
     return p
@@ -259,7 +449,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             "agent snapshot preparation did not replace the process"
         )  # pragma: no cover
-    return args.func(args)
+    try:
+        return args.func(args)
+    finally:
+        _cleanup(args)
 
 
 if __name__ == "__main__":

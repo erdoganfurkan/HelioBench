@@ -48,6 +48,8 @@ class ProcessMetrics:
     wall_s: float = 0.0
     tokens_prompt: int = 0
     tokens_completion: int = 0
+    tokens_cached: int = 0
+    tokens_self_reported: int = 0
     tokens_exact: bool = True
 
     def as_dict(self) -> dict:
@@ -80,6 +82,8 @@ def collect(trace: Trace) -> ProcessMetrics:
         wall_s=trace.wall_s,
         tokens_prompt=trace.tokens.prompt,
         tokens_completion=trace.tokens.completion,
+        tokens_cached=trace.tokens.cached,
+        tokens_self_reported=trace.tokens.self_reported,
         tokens_exact=trace.tokens.exact,
     )
     prov = trace.events_named("provenance")

@@ -41,7 +41,14 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from heliobench.graders.numeric import _NUMBER, canonical_unit
+from heliobench.graders.numeric import (
+    _NUMBER,
+    DURATION_UNITS,
+    canonical_unit,
+    normalise,
+    parse,
+    same_unit,
+)
 
 # How far from a ledger scalar the graded answer may sit and still be read as another value
 # for the same quantity. Beyond it, it is a different quantity and merely unsourced.
@@ -145,13 +152,18 @@ def sources(ledger: dict) -> list[Sourced]:
 
 
 def _tolerance(text: str) -> float:
-    """Half a unit in the last printed place: what rounding to those digits can hide."""
-    decimals = len(text.split(".")[1]) if "." in text else 0
-    return 0.5 * 10.0**-decimals * 1.001 + 1e-12
+    """Half a unit in the last printed place: what rounding to those digits can hide.
+
+    `1.23e5` was printed to two decimals of its mantissa, so it hides 0.005 × 10⁵.
+    """
+    mantissa, _, exponent = text.lower().partition("e")
+    decimals = len(mantissa.split(".")[1]) if "." in mantissa else 0
+    scale = 10.0 ** int(exponent) if exponent else 1.0
+    return (0.5 * 10.0**-decimals * 1.001 + 1e-12) * scale
 
 
 def _unit_ok(claim_unit: str, source_unit: str) -> bool:
-    return not claim_unit or not source_unit or claim_unit == source_unit
+    return not claim_unit or not source_unit or same_unit(claim_unit, source_unit)
 
 
 def _find(pool: list[Sourced], value: float, tol: float, unit: str, direct: bool) -> Sourced | None:
@@ -169,17 +181,21 @@ def classify_prose(reply: str, ledger: dict, prompt: str = "") -> Provenance:
     """Sort every number the reply states into matched, derived or unsourced."""
     pool = sources(ledger)
     given = set(re.findall(r"-?\d+(?:\.\d+)?", prompt or ""))
-    text = (reply or "").replace("−", "-").replace("≈", "~")
+    text = normalise(reply)
     p = Provenance()
     for m in _NUMBER.finditer(text):
-        raw, unit = m.group(1), canonical_unit(m.group(2) or "")
-        if unit == "%" or raw in given:
+        try:
+            raw, value, unit = parse(m)
+        except ValueError:
+            continue
+        unit = canonical_unit(unit)
+        if unit == "%" or unit in DURATION_UNITS or raw in given:
             continue
         # A bare integer with no unit is a date, a count or an index far more often than a
         # result; it is not counted at all rather than swelling `unsourced`.
-        if "." not in raw and not unit:
+        if "." not in raw and "e" not in raw and not unit:
             continue
-        value, tol = float(raw), _tolerance(raw)
+        tol = _tolerance(raw)
         if hit := _find(pool, value, tol, unit, direct=True):
             p.matched += 1
             p.details.append({"text": m.group(0), "status": "matched", "name": hit.name})
@@ -224,7 +240,7 @@ def check_answer(
             s
             for s in pool
             if s.kind == "scalar"
-            and s.units == unit
+            and same_unit(s.units, unit)
             and s.value
             and abs(v - s.value) / abs(s.value) <= NEAR_MISS
         ]

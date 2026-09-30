@@ -32,13 +32,17 @@ If you touched anything under `heliobench/graders/`, `heliobench/stats.py`,
 `heliobench/report.py` or `tasks/`, also regrade a stored run and **paste the before/after
 scores into the pull request**.
 
-`--regrade` **rewrites `meta.json` and `results.json` inside the run directory**, so copy the
-run first and regrade the copy. Never regrade a run in place:
+`--regrade` **rewrites `meta.json` and `results.json` inside the run directory**, so regrade a
+copy. `--out` makes the copy for you, and the CLI refuses to regrade a run under `results/` or
+`heliobench-results/` in place:
 
 ```bash
-cp -r results/<a stored run> /tmp/regrade && \
-  python -m heliobench.cli report /tmp/regrade --regrade
+python -m heliobench.cli report results/<a stored run> --regrade --out /tmp/regrade
 ```
+
+For every stored run at once, diffed against the base commit's grading, use
+`scripts/regrade_stored.py` (`--json` on the base commit, `--against` on the branch). Its
+table is the one to paste.
 
 `--regrade` re-scores stored traces with today's graders. It costs nothing: graders read
 traces, never the agent. Stored runs live under `results/` and `heliobench-results/`.

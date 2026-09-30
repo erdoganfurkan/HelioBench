@@ -11,11 +11,18 @@ Three things in HelioAI shape this file, all of them measured rather than assume
 - `stream_chat` takes the LLM client as an argument. That is the seam used to count tokens
   without patching the agent.
 
-`HELIOAI_DATA_DIR` moves sessions and workspaces but **not** the search index: `chroma_dir`
-is frozen from the package's own data root at import time and no environment variable
-overrides it. The index is therefore passed explicitly and pinned in the run header, which is
-what it should be anyway — it is 83 000 products built over ten minutes against a live
-upstream inventory, and two runs against two different indexes are not comparable.
+The search index is passed explicitly and pinned in the run header. Up to HelioAI 0.3,
+`HELIOAI_DATA_DIR` moved sessions and workspaces but not the index; from 0.4.0 (`2c6e856`) it
+moves the index, the catalogues and the profile too, so without `--index-dir` the agent looks
+for its index inside the benchmark's empty storage root and `preflight` refuses. Either way
+the index is 83 000 products built against a live upstream inventory, and two runs against
+two different indexes are not comparable.
+
+Everything else that changes what the agent does — named experiments, a second model for a
+sub-agent role, a judging backend, vision, MCP servers, the hybrid search, the loop's
+limits — is pinned to HelioAI's own default before import, and moved only by `--agent-env`,
+which lands in the header. Until 2026-09-28 those were inherited from the shell or a `.env`
+and recorded nowhere: two arms that differed by an experiment printed the same header.
 """
 
 from __future__ import annotations
@@ -30,7 +37,7 @@ from pathlib import Path
 
 from heliobench.retry import attach_backoff
 from heliobench.trace import Trace
-from heliobench.usage import attach_token_meter
+from heliobench.usage import UnmeteredProvider, add_own_client_usage, attach_token_meter
 
 # Providers whose model is not selectable through the environment: HelioAI hardcodes it as a
 # dataclass default, so it has to be set on the settings object after import.
@@ -41,7 +48,83 @@ _MODEL_ENV = {
 }
 
 
-_TOOL_OUTPUT_LIMIT = 4000
+# How much of each tool result the trace keeps. 4000 until 2026-09-28, which cut a search
+# result before its accepted id often enough that the report had to count such runs apart;
+# the limit now travels in every `tool_output` event, so a reader never has to know which
+# version of the harness wrote a trace to know where its cut was.
+_TOOL_OUTPUT_LIMIT = 16000
+
+# Variables that change the agent's behaviour, at HelioAI's own defaults. Set rather than
+# unset: an unset variable is filled from any discoverable `.env` (`load_dotenv` runs with
+# `override=False`), so only a value this adapter writes first is a value it controls.
+_PINNED_BEHAVIOUR = {
+    "HELIOAI_EXPERIMENTS": "",
+    "HELIOAI_ROLE_MODELS": "",
+    "HELIOAI_JUDGMENT_BACKEND": "null",
+    "HELIOAI_VISION_ENABLED": "0",
+    "HELIOAI_MCP_SERVERS": "",
+    "HELIOAI_RAG_HYBRID": "1",
+    "HELIOAI_MAX_ITERATIONS": "10",
+    "HELIOAI_MAX_OUTPUT_TOKENS": "",
+}
+
+# Written by the adapter itself from its own arguments; `--agent-env` may not move them.
+_ADAPTER_OWNED = frozenset(
+    {"HELIOAI_DATA_DIR", "HELIOAI_SESSION_DB", "HELIOAI_LLM_PROVIDER", "HELIOAI_LOG_FORMAT"}
+)
+
+_SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "HEADERS", "USERS")
+
+
+def parse_agent_env(pairs: list[str] | None) -> dict[str, str]:
+    """`["HELIOAI_EXPERIMENTS=final_answer", ...]` → a dict, refusing what it must not move.
+
+    Only `HELIOAI_*` names are taken, none that looks like a credential (`HELIOAI_MCP_TOKEN`,
+    `HELIOAI_DEV_TOKEN`: everything here is printed in the report header), and not the ones
+    the adapter derives from its own arguments.
+    """
+    out: dict[str, str] = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            raise ValueError(f"--agent-env expects KEY=VALUE, got {pair!r}")
+        key, value = pair.split("=", 1)
+        key = key.strip()
+        if not key.startswith("HELIOAI_"):
+            raise ValueError(f"--agent-env only sets HELIOAI_* variables, not {key!r}")
+        if key in _ADAPTER_OWNED or key in _MODEL_ENV.values():
+            raise ValueError(f"{key} is set by the adapter from its own flags")
+        if any(m in key for m in _SECRET_MARKERS):
+            raise ValueError(f"{key} looks like a credential; it would be printed in the header")
+        out[key] = value
+    return out
+
+
+def redacted_env(environ=None) -> dict[str, str]:
+    """Every `HELIOAI_*` variable the agent will read, with anything credential-like masked."""
+    environ = os.environ if environ is None else environ
+    return {
+        k: ("<set>" if any(m in k for m in _SECRET_MARKERS) and environ[k] else environ[k])
+        for k in sorted(environ)
+        if k.startswith("HELIOAI_")
+    }
+
+
+def _model_text(result) -> str:
+    """The text the model was shown for a tool result.
+
+    Up to HelioAI 0.3 the registry returned that string. From 0.4.0 (`e6a2e7f`) it returns a
+    `ToolResult`, whose `for_llm()` is the model's text; `str()` of it is a dataclass repr,
+    and the 0.4.0 candidate sweep of 2026-09-23 recorded that repr in all 47 traces —
+    retrievable ids inside a Python dict literal, and a truncation flag measured on the
+    wrong string.
+    """
+    if isinstance(result, str):
+        return result
+    for_llm = getattr(result, "for_llm", None)
+    if callable(for_llm):
+        return str(for_llm())
+    return str(result)
+
 
 # The recorder of the run whose task is executing, or None outside any run. HelioAI keeps its
 # own per-session state (`helioai.workspace`) in context variables for the same reason: with
@@ -122,7 +205,7 @@ def _recording_tool_output(trace: Trace, t0: float, registry=None):
         from helioai.tools.registry import registry
 
     def record(name: str, arguments: dict | None, result) -> None:
-        text = result if isinstance(result, str) else str(result)
+        text = _model_text(result)
         trace.events.append(
             {
                 "event": "tool_output",
@@ -131,6 +214,7 @@ def _recording_tool_output(trace: Trace, t0: float, registry=None):
                     "arguments": arguments,
                     "result": text[:_TOOL_OUTPUT_LIMIT],
                     "truncated": len(text) > _TOOL_OUTPUT_LIMIT,
+                    "limit": _TOOL_OUTPUT_LIMIT,
                 },
                 "t": round(time.monotonic() - t0, 3),
             }
@@ -169,6 +253,102 @@ def low_disk(where: Path, need_gb: float = 2.0, jobs: int = 1) -> str | None:
     )
 
 
+_INDEX_ROWS = """
+select e.embedding_id,
+       max(case when m.key = 'chroma:document' then m.string_value end)
+from embeddings e
+join segments s on s.id = e.segment_id
+join embedding_metadata m on m.id = e.id
+where s.collection = (select id from collections where name = 'speasy_catalog')
+group by e.id
+order by e.embedding_id
+"""
+
+
+def index_digest(index_dir: Path) -> str:
+    """16 hex of sha256 over every `(id, document)` the index holds, or `"missing"`.
+
+    The content, not the files: Chroma rewrites its sqlite file and its HNSW segments each
+    time it opens them, so a digest of the bytes differed between two processes reading the
+    same index — every `--resume` refused and every comparison listed the index as changed.
+    The rows are what the search ranks and what the n1 keys were enumerated from. Read-only.
+    """
+    import hashlib
+    import sqlite3
+
+    db = Path(index_dir) / "chroma.sqlite3"
+    if not db.is_file():
+        return "missing"
+    h = hashlib.sha256()
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        for pid, doc in con.execute(_INDEX_ROWS):
+            h.update(f"{pid}\x00{doc or ''}\n".encode())
+    except sqlite3.Error:
+        return "unreadable"
+    finally:
+        con.close()
+    return h.hexdigest()[:16]
+
+
+# The dependencies that decide what the agent sends and what comes back. `--agent-ref` pins
+# the agent's commit but its dependencies are resolved at install time, so the same commit
+# installed a month apart is not the same arm unless these say so.
+_KEY_DISTRIBUTIONS = ("openai", "httpx", "chromadb", "speasy", "numpy", "plasmapy", "torch")
+
+
+def environment_digest() -> dict:
+    """The installed distributions, as a digest over all of them and the key versions."""
+    import hashlib
+    from importlib import metadata
+
+    pins = sorted(
+        f"{(d.metadata['Name'] or '').lower()}=={d.version}" for d in metadata.distributions()
+    )
+    versions = {}
+    for name in _KEY_DISTRIBUTIONS:
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return {
+        "env_digest": hashlib.sha256("\n".join(pins).encode()).hexdigest()[:16],
+        "dependencies": versions,
+    }
+
+
+def keep_artifacts(artifacts: list[dict], session_dir: Path, dest: Path) -> int:
+    """Copy the files a run's artifacts point at out of its workspace, before it is deleted.
+
+    The workspace is the agent's scratch space and is removed after each run: an n3
+    session seeds ~37 MB into it, and a sweep that left them behind filled `/tmp` once and
+    killed a paid sweep at run 69. The figures and the code the agent ran are the part worth
+    keeping, and they are small. Each copied artifact gains a `kept` path next to its
+    original one; the original is left as recorded, since it is what the agent reported.
+    Only files inside `session_dir` are copied — an artifact pointing elsewhere is not the
+    run's to keep.
+    """
+    session_dir = Path(session_dir).resolve()
+    n = 0
+    for a in artifacts:
+        kept: list[str] = []
+        paths = [a.get("code_path"), a.get("path"), *(a.get("figure_paths") or [])]
+        for raw in paths:
+            if not isinstance(raw, str) or not raw:
+                continue
+            src = Path(raw).resolve()
+            if session_dir not in src.parents or not src.is_file():
+                continue
+            target = dest / src.relative_to(session_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+            kept.append(str(target))
+            n += 1
+        if kept:
+            a["kept"] = kept
+    return n
+
+
 def _discoverable_dotenv(start: Path) -> Path | None:
     """The `.env` HelioAI's own discovery would find walking up from `start`."""
     for d in [start, *start.parents]:
@@ -193,6 +373,8 @@ class HelioAIAgent:
         restricted: bool = True,
         user_id: str = "heliobench",
         jobs: int = 1,
+        agent_env: dict[str, str] | None = None,
+        keep_workspaces: bool = False,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.provider = provider
@@ -201,6 +383,8 @@ class HelioAIAgent:
         self.restricted = restricted
         self.user_id = user_id
         self.jobs = jobs
+        self.agent_env = dict(agent_env or {})
+        self.keep_workspaces = keep_workspaces
         self._imported = False
 
     def _pin_env(self) -> None:
@@ -212,6 +396,8 @@ class HelioAIAgent:
         os.environ["HELIOAI_LOG_FORMAT"] = "json"
         if self.model and self.provider in _MODEL_ENV:
             os.environ[_MODEL_ENV[self.provider]] = self.model
+        os.environ.update(_PINNED_BEHAVIOUR)
+        os.environ.update(self.agent_env)
 
     def _load(self):
         """Import HelioAI once, env already pinned, and apply the settings it will not
@@ -248,8 +434,84 @@ class HelioAIAgent:
             "max_iterations": settings.agent.max_iterations,
             "restricted": self.restricted,
             "index_dir": str(settings.rag.chroma_dir),
+            "index_digest": self._index_digest(settings.rag.chroma_dir),
             "index_size": self._index_size(),
+            **environment_digest(),
+            **self._behaviour(settings),
         }
+
+    def _behaviour(self, settings) -> dict:
+        """What HelioAI parsed out of the variables that change what it does.
+
+        Read back from `settings` rather than from the environment: the header must say what
+        the agent will do, and a value HelioAI does not understand is one it ignores.
+        Attributes a given HelioAI version lacks are left out, not guessed.
+        """
+        out: dict = {"agent_env": dict(self.agent_env), "helioai_env": redacted_env()}
+        agent = getattr(settings, "agent", None)
+        if hasattr(agent, "experiments"):
+            out["experiments"] = sorted(agent.experiments)
+        if hasattr(agent, "role_models"):
+            out["role_models"] = {r: list(v) for r, v in sorted(agent.role_models.items())}
+        judgment = getattr(settings, "judgment", None)
+        if judgment is not None:
+            out["judgment"] = {"backend": judgment.backend, "model": judgment.model}
+        vision = getattr(settings, "vision", None)
+        if vision is not None:
+            out["vision"] = {"enabled": vision.enabled, "model": vision.model}
+        mcp = getattr(settings, "mcp", None)
+        if mcp is not None:
+            out["mcp_servers"] = bool(getattr(mcp, "servers_json", ""))
+        if hasattr(getattr(settings, "rag", None), "hybrid_enabled"):
+            out["rag_hybrid"] = settings.rag.hybrid_enabled
+        return out
+
+    @staticmethod
+    def _backoff_policy() -> dict:
+        """Leave status-bearing retries to HelioAI where it makes them, keep the rest here.
+
+        HelioAI wraps every SDK call in `call_with_retry` (4 attempts, honouring Retry-After)
+        for 408/429/5xx; stacking the harness's 5 inside it made one rate limit up to twenty
+        requests. Connection resets and timeouts carry no status, HelioAI does not retry them
+        and its SDK clients have `max_retries=0`, so the harness still does.
+        """
+        try:
+            from helioai.core.llm.base import call_with_retry  # noqa: F401
+        except ImportError:
+            return {}
+        return {"defer_status": True}
+
+    def _role_models(self) -> dict:
+        """Sub-agent roles HelioAI runs on a client of their own, as it parsed them."""
+        from helioai.config import settings
+
+        return dict(getattr(settings.agent, "role_models", {}) or {})
+
+    def _index_digest(self, index_dir) -> str:
+        """The index's content digest (`index_digest`), once per process.
+
+        `index_size` told the two September arms apart only by luck: 82 244 against 82 266
+        products. Two indexes of equal size can rank differently, and the n1 rank is the
+        metric that reads the ranking.
+        """
+        if getattr(self, "_index_digest_cache", None) is None:
+            self._index_digest_cache = index_digest(Path(index_dir))
+        return self._index_digest_cache
+
+    def missing_ids(self, ids: list[str]) -> set[str] | None:
+        """The ids of `ids` the search index does not hold, or None if it cannot be asked.
+
+        An n1 key is enumerated from one index and scored against runs on another. A key
+        whose every id the index lacks is a task the agent cannot pass — and it looks, in
+        the report, exactly like a retrieval failure.
+        """
+        try:
+            from helioai.tools.rag import _collection_only
+
+            found = set(_collection_only().get(ids=list(ids), include=[])["ids"])
+        except Exception:
+            return None
+        return set(ids) - found
 
     def _index_size(self) -> int:
         """Number of indexed products, or -1 when the index cannot be opened."""
@@ -271,10 +533,15 @@ class HelioAIAgent:
         # The hallucination metric fails open: `unknown_ids` returns "nothing unknown" when
         # the index is unreachable, so an absent index scores as a flawless run.
         n = self._index_size()
+        hint = "" if self.index_dir else " — pass --index-dir"
         if n < 0:
-            problems.append("the Chroma index is unreachable — invented ids would score as valid")
+            problems.append(
+                f"the Chroma index is unreachable — invented ids would score as valid{hint}"
+            )
         elif n == 0:
-            problems.append("the Chroma index is empty — invented ids would score as valid")
+            problems.append(f"the Chroma index is empty — invented ids would score as valid{hint}")
+
+        problems += self._client_problems()
 
         low = low_disk(self.data_dir, jobs=self.jobs)
         if low:
@@ -287,6 +554,58 @@ class HelioAIAgent:
                 "this adapter does not pin can be inherited from it"
             )
         return problems
+
+    def _client_problems(self) -> list[str]:
+        """Build every client a run will build, so a missing key fails here and not in it.
+
+        Four stored sweeps — 154 runs — died on their first provider call: two with
+        `*_API_KEY is not set`, two with a provider rejecting the request outright. Building
+        the client is free and catches the first kind, for the lead and for every role
+        `HELIOAI_ROLE_MODELS` sends elsewhere; the meter is attached too, because a client
+        it cannot count is one whose cost the report would publish as zero. The second kind
+        needs a request: `verify --canary`.
+        """
+        from helioai.core.llm.factory import build_llm_client
+
+        targets = [(self.provider, None, "lead")]
+        targets += [(p, m, role) for role, (p, m) in sorted(self._role_models().items())]
+        problems = []
+        for provider, model, who in targets:
+            try:
+                llm = (
+                    build_llm_client(provider, model=model) if model else build_llm_client(provider)
+                )
+            except Exception as e:
+                problems.append(
+                    f"the {who} client ({provider}) cannot be built: {type(e).__name__}: {e}"
+                )
+                continue
+            if who == "lead":
+                try:
+                    attach_token_meter(llm)
+                except UnmeteredProvider as e:
+                    problems.append(str(e))
+        return problems
+
+    async def canary(self) -> str:
+        """Send one tiny request through the lead's client, exactly as a run would build it.
+
+        Costs a few dozen tokens. It is the only check that sees what a provider does with a
+        real request — the 400 `MissingSessionID` that zeroed the 2026-09-09 sweep was
+        visible on the first call and on no configuration file.
+        """
+        self._load()
+        from helioai.core.llm.base import Message, close_sdk_client
+        from helioai.core.llm.factory import build_llm_client
+
+        llm = build_llm_client(self.provider)
+        meter = attach_token_meter(llm)
+        try:
+            await llm.chat([Message(role="user", content="Reply with the single word: ok")], [])
+        finally:
+            await close_sdk_client(getattr(llm, "_client", None))
+        u = meter.usage
+        return f"ok ({u.prompt} prompt + {u.completion} completion tokens)"
 
     def seed(self, workdir: Path, fixture: Path | None, session_id: str) -> str:
         """Point a session at `workdir` and pre-fill it, so the run is replayable offline.
@@ -338,7 +657,7 @@ class HelioAIAgent:
         meter = attach_token_meter(llm)
 
         t0 = time.monotonic()
-        attach_backoff(llm, trace, t0)
+        attach_backoff(llm, trace, t0, **self._backoff_policy())
         try:
             from helioai.core.agent_loop import stream_chat
 
@@ -359,8 +678,12 @@ class HelioAIAgent:
         finally:
             trace.wall_s = round(time.monotonic() - t0, 3)
             trace.tokens = meter.usage
+            add_own_client_usage(trace.tokens, trace.events, self._role_models())
             await close_sdk_client(getattr(llm, "_client", None))
             store.reset(self.user_id, session_id)
 
         trace.ledger = read_ledger(session_dir)
+        keep_artifacts(trace.artifacts, session_dir, workdir / "artifacts")
+        if not self.keep_workspaces:
+            shutil.rmtree(session_dir, ignore_errors=True)
         return trace

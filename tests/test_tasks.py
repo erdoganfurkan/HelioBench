@@ -61,3 +61,44 @@ def test_tier_filter(tmp_path):
     _write(tmp_path, "a.yaml", _GOOD)
     _write(tmp_path, "b.yaml", {**_GOOD, "id": "n1_x", "tier": "n1"})
     assert [t.id for t in load_tasks(tmp_path, tiers=["n1"])] == ["n1_x"]
+
+
+def test_an_unknown_interval_quality_is_refused(tmp_path):
+    from heliobench.tasks import TaskError, _load_one
+
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "id: t\ntier: n3\nprompt: p\nexpected: {value: 1, units: ''}\nprovenance: v\n"
+        "quality: from_memory\n"
+    )
+    with pytest.raises(TaskError, match="quality"):
+        _load_one(p)
+
+
+def test_every_n3_task_says_how_its_interval_was_chosen():
+    from heliobench.tasks import load_tasks
+
+    assert all(t.quality for t in load_tasks("tasks", tiers=["n3"]))
+
+
+def test_an_n1_exclusion_never_excludes_an_accepted_id():
+    # `key_excluded` records the candidates a key rejects and why; one that matched an id
+    # the key accepts would be a key contradicting itself.
+    import re
+
+    from heliobench.tasks import load_tasks
+
+    for t in load_tasks("tasks", tiers=["n1"]):
+        for ex in t.key_excluded:
+            rx = re.compile(ex["pattern"])
+            assert not [i for i in t.expected["ids"] if rx.search(i)], (t.id, ex["pattern"])
+
+
+def test_a_key_exclusion_without_a_reason_is_refused(tmp_path):
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "id: t\ntier: n1\nprompt: p\nexpected: {ids: [a/b]}\nprovenance: v\n"
+        "key_excluded: [{pattern: '^x'}]\n"
+    )
+    with pytest.raises(TaskError, match="pattern and a reason"):
+        load_tasks(tmp_path)

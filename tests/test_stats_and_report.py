@@ -175,3 +175,104 @@ def test_regrading_skips_traces_whose_task_left_the_set(tmp_path):
     result = regrade(out, [kept])
     assert [r["task_id"] for r in result["records"]] == ["n1_here"]
     assert result["meta"]["skipped_traces"] == ["n1_gone"]
+
+
+def test_a_regrade_leaves_a_trace_whose_prompt_changed_unscored(tmp_path):
+    # When a prompt is hardened, the old runs answered a different question: they are
+    # unscored, not re-scored. Regrading used to grade them against the new key and write the
+    # new digest, which `compare` would then have accepted.
+    tasks = load_tasks("tasks", tiers=["n2"])[:2]
+    out = tmp_path / "run"
+    run(NullAgent(), tasks, out, runs=1)
+    trace_path = out / "traces" / f"{tasks[0].id}.0.json"
+    data = json.loads(trace_path.read_text())
+    data["prompt"] = "an older wording of the question"
+    trace_path.write_text(json.dumps(data))
+
+    res = regrade(out, tasks)
+    assert [r["task_id"] for r in res["records"]] == [tasks[1].id]
+    assert res["meta"]["unscored_traces"] == [
+        {"task_id": tasks[0].id, "run": 0, "reason": "the prompt changed since this run"}
+    ]
+    assert res["meta"]["task_set_digest"] == task_set_digest([tasks[1]])
+
+
+def test_meta_records_a_digest_per_task_and_per_fixture(tmp_path):
+    from heliobench.runner import fixture_digests, task_digests
+
+    tasks = load_tasks("tasks", tiers=["n3"])[:2]
+    meta = run(NullAgent(), tasks, tmp_path / "r", runs=1)["meta"]
+    assert meta["task_digests"] == task_digests(tasks)
+    assert set(meta["fixture_digests"]) == {t.fixture for t in tasks}
+    assert meta["fixture_digests"] == fixture_digests(tasks, __import__("pathlib").Path("fixtures"))
+    # The set digest is unchanged by this: stored runs must keep comparing.
+    assert meta["task_set_digest"] == task_set_digest(tasks)
+
+
+def _n3_run(tmp_path, runs=1):
+    tasks = load_tasks("tasks", tiers=["n2"])[:2] + load_tasks("tasks", tiers=["n3"])[:2]
+    out = tmp_path / "run"
+    run(NullAgent(), tasks, out, runs=runs)
+    return out
+
+
+def test_one_repetition_is_flagged_as_saying_nothing_about_reproducibility(tmp_path):
+    md = report.write(_n3_run(tmp_path, runs=1)).read_text(encoding="utf-8")
+    assert "One repetition" in md
+    md = report.write(_n3_run(tmp_path / "k", runs=2)).read_text(encoding="utf-8")
+    assert "One repetition" not in md
+
+
+def test_the_report_has_a_per_task_matrix_and_process_by_tier(tmp_path):
+    md = report.write(_n3_run(tmp_path, runs=2)).read_text(encoding="utf-8")
+    assert "## Per task" in md and "| n2 | ✗✗ |" in md
+    assert "## Process by tier" in md and "Wall p95" in md
+
+
+def test_prices_turn_tokens_into_cost(tmp_path):
+    out = _n3_run(tmp_path)
+    recs = json.loads((out / "results.json").read_text())
+    for r in recs:
+        r["metrics"].update(tokens_prompt=1_000_000, tokens_completion=100_000, tokens_cached=0)
+    (out / "results.json").write_text(json.dumps(recs))
+    meta = json.loads((out / "meta.json").read_text())
+    prices = {meta["agent"]["model"]: {"input": 1.0, "output": 10.0}}
+    md = report.build(meta, recs, prices)
+    assert "| Cost (USD) | 8.0000 | 2.0000 |" in md
+    assert "Cost (USD)" not in report.build(meta, recs)
+
+
+def test_cached_prompt_tokens_are_priced_at_the_cached_rate():
+    assert report.cost_usd(1_000_000, 0, 400_000, "m", {"m": {"input": 1, "cached": 0.1}}) == (
+        pytest_approx(0.64)
+    )
+
+
+def test_the_header_says_what_was_regraded_and_what_was_left_unscored(tmp_path):
+    meta = {
+        "agent": {"agent": "helioai", "experiments": ["search_budget"], "agent_env": {}},
+        "regraded": "2026-09-28T10:00:00+00:00",
+        "unscored_traces": [{"task_id": "n1_x", "run": 0, "reason": "the prompt changed"}],
+        "status": "interrupted",
+    }
+    md = report.build(meta, [])
+    assert "| Regraded | 2026-09-28T10:00:00+00:00 |" in md
+    assert "1 — the prompt changed since the run (n1_x)" in md
+    assert "experiments: search_budget" in md
+    assert "⚠️ interrupted" in md
+
+
+def test_the_html_page_is_self_contained_and_carries_the_same_tables(tmp_path):
+    out = _n3_run(tmp_path)
+    report.write(out, html=True)
+    page = (out / "report.html").read_text(encoding="utf-8")
+    assert page.startswith("<!doctype html>") and "<table>" in page
+    assert "<script" not in page and "http" not in page.split("<body>")[0]
+    assert '<span class="ko">✗</span>' in page
+
+
+def test_two_sweeps_started_in_the_same_second_get_two_directories(tmp_path):
+    from heliobench.runner import new_run_dir
+
+    a, b = new_run_dir(tmp_path, "null"), new_run_dir(tmp_path, "null")
+    assert a != b and (b / "traces").is_dir()

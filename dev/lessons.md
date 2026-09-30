@@ -115,3 +115,55 @@ moment two runs overlap. Patch once and dispatch on the asyncio task context
 (`contextvars`), as HelioAI itself does for its workspace state. And a concurrency test on a
 path the null agent skips is not a concurrency test: the recorder now takes an injectable
 registry so CI, which installs no agent, can run two overlapping runs through it.
+
+`2026-09-28` | The 0.4.0-candidate sweep of 2026-09-23 was recorded with two seams broken by
+the agent's own refactors, and nothing failed: HelioAI now streams every lead turn, so the
+token meter saw an `AsyncStream` with no `.usage` and reported `0 ⚠️ not exact`; and its
+registry returns a `ToolResult`, so the tool-output recorder stored a Python repr in all 47
+traces. Both wrappers accepted any object and degraded quietly. | Before measuring a new
+agent version, run `tests/test_helioai_adapter.py` against *that* version (point
+`PYTHONPATH` at its checkout from a venv that has its dependencies). A seam that wraps an
+object must know the shapes it can receive and say so when it gets another one — a warning
+flag on a zero is still a zero in a table.
+
+`2026-09-28` | Experiments, a second model for a sub-agent role, a judging backend, vision
+and MCP servers all reach HelioAI through `HELIOAI_*` variables that the adapter neither
+pinned nor recorded; any of them could be inherited from a shell or a `.env`, and two arms
+that differed by one printed the same header. | Everything that moves the agent's
+behaviour is pinned to its default before import and moved only by an explicit flag that
+lands in the header. When the agent grows a new such variable, add it to
+`_PINNED_BEHAVIOUR` in the same change that measures it.
+
+`2026-09-28` | `report --regrade` graded traces whose prompts had been hardened since, and
+stamped the run with today's digest — the lesson of 2026-08-21 ("unscored, not re-scored")
+had been written down and not enforced, and `compare` would have accepted the result. |
+A rule the ledger states and the code does not enforce is a rule the next regrade breaks.
+`regrade` now leaves any trace whose prompt differs from the task's unscored.
+
+`2026-09-28` | The September comparison of 0.3.0 against the 0.4.0 candidate ran the two
+arms on two different indexes (82 244 and 82 266 products), and the paired test printed a
+significant n1-rank improvement with nothing beside it to say the index had moved too. |
+A comparison lists every recorded difference between its arms before its p-value
+(`compare`'s "What differs between the arms"). Read that table first: a difference in
+scores belongs to the change under test only if that change is its only row.
+
+`2026-09-28` | The first contamination scan reported `amda/imf` in the parameter hunter's
+skill; the skill says `amda/imf_real_gse`, a different product. | Match an identifier as a
+whole token — an id ends where the characters an id may contain do — or a scan for leaks
+reports its own substring matches.
+
+`2026-09-28` | `n1_dst_index` rejected OMNI2's hourly Dst for five weeks, and the todo entry
+that finally caught it blamed a lower-case enumeration. The enumeration was case-insensitive
+and had returned the id; the provenance line even counted three non-MEC candidates. The key
+listed two. The omission was made by hand, after the measurement, where no check looked. |
+A key records its query and a reason for every candidate it rejects (`key_query`,
+`key_excluded`), and `n1_key_candidates.py --check` fails on any candidate that is neither
+accepted nor excluded. Diagnose a key defect by re-running its query, not by reasoning about
+how it was probably run.
+
+`2026-09-30` | `normalise` kept a `**` after `10` as Python's `10**`, so the closing bold of
+`**410** km/s` survived and `n3_speed_upstream` (409.99 km/s) failed that reply while
+passing `**409.99** km/s`: the verdict turned on the last two digits of a correct value. |
+Tell a notation apart by what must follow it, not only by what precedes it — an exponent is
+followed by its power. Test a spelling rule on the reference values the tasks actually hold,
+not only on the one example that motivated it.

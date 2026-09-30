@@ -38,9 +38,12 @@ ${CLAUDE_SKILL_DIR}/scripts/heliobench.sh run --agent null --runs 1      # costs
 ${CLAUDE_SKILL_DIR}/scripts/heliobench.sh report results/<run-dir>
 ```
 
-**Always `verify` before `run`.** A run against an unreachable search index scores a perfect
-zero on invented identifiers — the check fails open, so absence of the index looks like
-flawless behaviour. `verify` catches that, plus missing fixtures and inherited `.env` files.
+**Always `verify --canary` before `run`.** A run against an unreachable search index scores a
+perfect zero on invented identifiers — the check fails open, so absence of the index looks
+like flawless behaviour. `verify` catches that, plus missing fixtures, missing keys, answer
+keys the index cannot satisfy and inherited `.env` files; `--canary` sends the provider one
+tiny request, the only way to see it refuse before a sweep spends the quota. A sweep that
+stops half-way is finished with `run --resume <run dir>`, not restarted.
 
 **A real run spends the user's API quota.** 47 tasks × 3 repetitions is 141 agent runs. Say
 what that will cost in calls before starting one, and get agreement. `--agent null` and
@@ -51,6 +54,9 @@ what that will cost in calls before starting one, and get agreement. `--agent nu
 The report leads with mean accuracy per tier and a 95% interval bootstrapped over *events*,
 not tasks. Point out these things, in this order:
 
+0. **The header.** Which arm this is — agent ref, model, `Agent config`, index digest — and
+   whether the run was interrupted, resumed or regraded, or left traces unscored. With one
+   repetition the report says so, and `pass^k` then means nothing.
 1. **The gap between `pass^k` and `pass≥1`.** That gap is how much of the score is luck. A
    tier where they are far apart has a reproducibility problem, not an accuracy problem, and
    the accuracy number should not be quoted without it.
@@ -75,9 +81,13 @@ For two arms over the same tasks, run the paired test rather than reading the in
 ${CLAUDE_SKILL_DIR}/scripts/heliobench.sh compare results/<run A> results/<run B>
 ```
 
-It refuses mismatched digests, drops errored repetitions, and prints McNemar's p under both
-`pass^k` and majority collapsing, with the tasks that moved. Overlapping confidence intervals
-are **not** evidence of no difference when the arms answered the same questions.
+It refuses mismatched digests (`--tier` and `--shared` narrow the comparison to questions
+both runs asked the same way), drops errored repetitions, and prints McNemar's p under both
+`pass^k` and majority collapsing, with the tasks that moved and the process metrics paired
+by task. Read its **What differs between the arms** table first: a score difference is only
+attributable to the change you meant to test if that change is the only row. Overlapping
+confidence intervals are **not** evidence of no difference when the arms answered the same
+questions.
 
 ## What this benchmark does not claim
 

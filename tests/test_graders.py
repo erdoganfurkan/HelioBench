@@ -4,7 +4,7 @@ from heliobench.graders import grade
 from heliobench.graders.numeric import candidates, same_unit
 from heliobench.graders.process import collect
 from heliobench.graders.retrieval import extract_ids, retrieved_ids
-from heliobench.tasks import Task
+from heliobench.tasks import Task, load_tasks
 from heliobench.trace import Trace
 
 
@@ -219,3 +219,115 @@ def test_silence_about_provenance_is_not_four_zeros():
     # The agent emits nothing when the session computed nothing. An absent report and a
     # clean report must not read the same in the results table.
     assert collect(_trace()).provenance_reported is False
+
+
+def test_n1_detail_reports_hedging_and_ids_no_search_returned_without_changing_the_verdict():
+    from heliobench.graders import retrieval
+    from heliobench.tasks import Task
+    from heliobench.trace import Trace
+
+    task = Task(id="t", tier="n1", prompt="p", expected={"ids": ["cda/A/x"]}, provenance="v")
+    trace = Trace(
+        task_id="t",
+        prompt="p",
+        agent="a",
+        reply="Use cda/B/y, or cda/A/x.",
+        events=[
+            {
+                "event": "tool_output",
+                "data": {"name": "search_parameters", "result": "cda/A/x cda/C/z"},
+            }
+        ],
+    )
+    r = retrieval.grade(task, trace)
+    assert r.passed, "reported, not gated"
+    assert r.detail["hedged"] is True
+    assert r.detail["first_accepted"] is False
+    assert r.detail["unreturned"] == ["cda/B/y"]
+
+
+# Every row is a spelling a defensible answer used, and what the parser must read out of it.
+# The first eleven were misread or missed before 2026-09-28 (`dev/lessons.md`).
+@pytest.mark.parametrize(
+    "text, units, near, want",
+    [
+        ("V_A = 87.5 km s⁻¹", "km/s", ["v_a"], [87.5]),
+        ("V_A = 87.5 km·s⁻¹", "km/s", None, [87.5]),
+        ("V_A = 87.5 kms^-1", "km/s", None, [87.5]),
+        ("Debye length λ_D = 235.1 metres", "m", ["debye"], [235.1]),
+        ("Debye length λ_D = 235.1 meters", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351e2 m", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351 × 10^2 m", "m", ["debye"], [235.1]),
+        ("Debye length is 2.351 × 10² m", "m", ["debye"], [235.1]),
+        ("inertial length d_i = 2,280 km", "km", ["inertial"], [2280.0]),
+        ("the speed range 400-450 km/s", "km/s", None, [450.0]),
+        ("$v_A = 87.5\\,\\mathrm{km/s}$", "km/s", ["v_a"], [87.5]),
+        ("n = 7.0 cm^{-3}", "cm-3", None, [7.0]),
+        ("n = 7.0 /cc", "cm-3", None, [7.0]),
+        ("n = 7.0 cm⁻³", "cm-3", None, [7.0]),
+        ("**87.5 km/s**", "km/s", None, [87.5]),
+        ("87.5\u202fkm/s", "km/s", None, [87.5]),
+        ("θ_Bn is 45.2 degrees", "deg", ["θ"], [45.2]),
+        ("B = -9.7 nT (southward)", "nT", None, [-9.7]),
+        ("B = 9.7 nanotesla", "nT", None, [9.7]),
+        ("f_ce = 559.8 hertz", "Hz", None, [559.8]),
+        ("Debye length λ_D = 2.351*10**2 m", "m", ["debye"], [235.1]),
+        ("n = 17.77 cm**-3", "cm-3", None, [17.77]),
+        ("**87.5** km/s", "km/s", None, [87.5]),
+        # A bold number ending in 10 is still bold, not the base of an exponent.
+        ("upstream speed **410** km/s", "km/s", None, [410.0]),
+        ("B = **2.10** nT", "nT", None, [2.10]),
+        ("n = **7.0** cm**-3", "cm-3", None, [7.0]),
+    ],
+)
+def test_the_spellings_of_a_defensible_answer_are_read(text, units, near, want):
+    assert candidates(text, units, near) == pytest.approx(want)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ratio 2.59 from 5 min windows at 08:30 UT on 2015-03-17",
+        "between 2015-03-17T03:35:59 and 04:25",
+        "over 20 minutes and 3 s",
+    ],
+)
+def test_dates_times_and_durations_are_not_bare_numbers(text):
+    assert candidates(text, "", None) == ([2.59] if "2.59" in text else [])
+
+
+def test_units_are_folded_never_scaled():
+    # The prompt names the unit; converting would make the grader decide what was meant.
+    assert candidates("f_ce ≈ 0.56 kHz", "Hz", None) == []
+    assert candidates("B = 9700 pT", "nT", None) == []
+    assert candidates("λ_D = 0.235 km", "m", None) == []
+
+
+def test_near_matches_whole_tokens_only():
+    # `di` inside *distance* used to open a keyword window around an unrelated number.
+    text = "d_i is 86.1 km." + " filler" * 40 + " The distance to the bow shock was 50 km."
+    assert candidates(text, "km", ["di", "d_i"]) == [86.1]
+    assert candidates("d_i = 86.1 km", "km", ["d_i"]) == [86.1]
+    assert candidates("|B| = 9.7 nT", "nT", ["|b|"]) == [9.7]
+
+
+def test_a_stem_keyword_starts_a_token_and_a_short_symbol_is_a_whole_one():
+    # Keys store stems: `densit`, `alfv`, `gyro`. A whole-token rule broke all of them.
+    pad = " filler" * 40
+    text = "Upstream interval used as requested." + pad + " The mean density is 17.77 cm^-3."
+    assert candidates(text, "cm-3", ["densit", "upstream"]) == [17.77]
+    assert candidates(
+        "Upstream." + pad + " Alfven speed 87.5 km/s", "km/s", ["alfv", "upstream"]
+    ) == [87.5]
+    assert candidates("x." + pad + " Alfvén speed 87.5 km/s", "km/s", ["alfv", "x"]) == [87.5]
+    assert candidates("y." + pad + " electron gyrofrequency 559.8 Hz", "Hz", ["gyro", "y"]) == [
+        559.8
+    ]
+
+
+def test_a_bold_answer_is_graded_whatever_its_last_digits():
+    # n3_speed_upstream's reference is 409.99 km/s: `**410** km/s` passed or failed on the
+    # two digits before the closing `**`, which `normalise` took for Python's `10**`.
+    task = next(t for t in load_tasks("tasks") if t.id == "n3_speed_upstream")
+    for reply in ("The upstream speed is **410** km/s.", "The upstream speed is **410 km/s**."):
+        assert grade(task, _trace(reply)).passed, reply

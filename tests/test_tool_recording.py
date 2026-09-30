@@ -8,7 +8,7 @@ object with an async `call_tool`, so a stand-in for HelioAI's registry is enough
 
 import asyncio
 
-from heliobench.adapters.helioai import _DISPATCHER, _recording_tool_output
+from heliobench.adapters.helioai import _DISPATCHER, _TOOL_OUTPUT_LIMIT, _recording_tool_output
 from heliobench.trace import Trace
 
 
@@ -65,7 +65,7 @@ def test_a_call_outside_any_run_is_passed_through_unrecorded():
 def test_the_recorder_keeps_what_a_tool_returned_verbatim_and_flags_truncation():
     class _Long(_Registry):
         async def call_tool(self, name, arguments=None, *, trusted=None):
-            return "x" * 5000
+            return "x" * (_TOOL_OUTPUT_LIMIT + 1000)
 
     registry = _Long()
     trace = Trace(task_id="t", prompt="", agent="")
@@ -76,7 +76,88 @@ def test_the_recorder_keeps_what_a_tool_returned_verbatim_and_flags_truncation()
 
     out = asyncio.run(main())
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
-    assert out == "x" * 5000, "the agent must see the full result"
-    assert ev["data"]["result"] == "x" * 4000
+    assert out == "x" * (_TOOL_OUTPUT_LIMIT + 1000), "the agent must see the full result"
+    assert ev["data"]["result"] == "x" * _TOOL_OUTPUT_LIMIT
     assert ev["data"]["truncated"] is True
+    assert ev["data"]["limit"] == _TOOL_OUTPUT_LIMIT
     assert ev["data"]["arguments"] == {"query": "Bz"}
+
+
+def test_a_tool_result_object_is_recorded_as_the_text_the_model_saw():
+    # HelioAI 0.4.0's registry returns a `ToolResult`; its repr is not what the model read.
+    class _Result:
+        def for_llm(self):
+            return '{"results": [{"id": "cda/AC_H0_MFI/BGSM"}]}'
+
+        def __repr__(self):
+            return "ToolResult(tool='search_parameters', payload={...})"
+
+    class _Objects(_Registry):
+        async def call_tool(self, name, arguments=None, *, trusted=None):
+            return _Result()
+
+    registry = _Objects()
+    trace = Trace(task_id="t", prompt="", agent="")
+
+    async def main():
+        with _recording_tool_output(trace, 0.0, registry=registry):
+            return await registry.call_tool("search_parameters", {"query": "Bz"})
+
+    out = asyncio.run(main())
+    (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
+    assert isinstance(out, _Result), "the agent must get its own object back"
+    assert ev["data"]["result"] == '{"results": [{"id": "cda/AC_H0_MFI/BGSM"}]}'
+
+
+def test_artifacts_are_copied_out_of_the_workspace_before_it_goes(tmp_path):
+    from heliobench.adapters.helioai import keep_artifacts
+
+    ws = tmp_path / "ws"
+    (ws / "figs").mkdir(parents=True)
+    (ws / "code_0.py").write_text("print(1)")
+    (ws / "figs" / "b.png").write_bytes(b"png")
+    outside = tmp_path / "elsewhere.png"
+    outside.write_bytes(b"x")
+    artifacts = [
+        {"kind": "code", "code_path": str(ws / "code_0.py")},
+        {"kind": "image", "figure_paths": [str(ws / "figs" / "b.png"), str(outside)]},
+    ]
+    assert keep_artifacts(artifacts, ws, tmp_path / "run" / "artifacts") == 2
+    assert (tmp_path / "run" / "artifacts" / "figs" / "b.png").read_bytes() == b"png"
+    assert artifacts[1]["kept"] == [str(tmp_path / "run" / "artifacts" / "figs" / "b.png")]
+    assert artifacts[0]["code_path"] == str(ws / "code_0.py"), "what the agent said stays"
+
+
+def test_the_index_digest_reads_content_not_files(tmp_path):
+    # Chroma rewrites its files on every open; a byte digest differed between two readers.
+    import sqlite3
+
+    from heliobench.adapters.helioai import environment_digest, index_digest
+
+    def build(where, rows):
+        where.mkdir()
+        con = sqlite3.connect(where / "chroma.sqlite3")
+        con.executescript(
+            "create table collections(id, name); create table segments(id, collection);"
+            "create table embeddings(id, segment_id, embedding_id);"
+            "create table embedding_metadata(id, key, string_value);"
+            "insert into collections values ('c', 'speasy_catalog');"
+            "insert into segments values ('s', 'c');"
+        )
+        for i, (pid, doc) in enumerate(rows):
+            con.execute("insert into embeddings values (?, 's', ?)", (i, pid))
+            con.execute("insert into embedding_metadata values (?, 'chroma:document', ?)", (i, doc))
+        con.commit()
+        con.close()
+        return where
+
+    a = build(tmp_path / "a", [("cda/X/y", "doc"), ("amda/z", "other")])
+    b = build(tmp_path / "b", [("amda/z", "other"), ("cda/X/y", "doc")])
+    c = build(tmp_path / "c", [("cda/X/y", "doc changed"), ("amda/z", "other")])
+    assert index_digest(a) == index_digest(b), "insertion order and file layout do not matter"
+    assert index_digest(a) != index_digest(c)
+    (a / "noise.bin").write_bytes(b"rewritten on open")
+    assert index_digest(a) == index_digest(b)
+    assert index_digest(tmp_path / "nope") == "missing"
+    env = environment_digest()
+    assert len(env["env_digest"]) == 16 and "numpy" in env["dependencies"]

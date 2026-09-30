@@ -8,9 +8,19 @@ expected:
   ids:
   - amda/dst
   - amda/omni_dst
+  - cda/OMNI2_H0_MRG1HR/DST1800
+key_query:
+- '(^amda/|/)[a-z0-9_]*dst'
+- 'index'
+key_excluded:
+- pattern: '^cda/MMS\d_MEC_'
+  reason: the index copied into an MMS MEC ephemeris as a model input ("Dst index from
+    QinDenton files, used as input to magnetic field models"), which the prompt excludes
 provenance: speasy inventory as indexed by helioai; accepted ids enumerated from the index
   by `scripts/n1_key_candidates.py '(^amda/|/)[a-z0-9_]*dst' 'index'`, not recalled; 27 entries
   carry a Dst value and 24 of them are the same index copied into an MMS MEC ephemeris dataset
   ("Dst index from QinDenton files, used as input to magnetic field models"), so the prompt
-  separates the published index from a model input
+  separates the published index from a model input. The other three are all accepted —
+  OMNI2's hourly `DST1800` was enumerated and left out of the key by hand until 2026-09-28,
+  when `n1_key_candidates.py --check` made the omission visible
 licence: internal

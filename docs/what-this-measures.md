@@ -3,7 +3,8 @@
 Three tiers, ordered from the least arguable to the most.
 
 **n1 — retrieval (30 tasks).** Resolving a physical quantity to an archived product
-identifier out of 82 433. The verdict is string equality against identifiers enumerated from
+identifier out of some 82 000 (82 433 when the keys were first enumerated, 82 266 in the
+index of 2026-09-28 — which is why `verify` holds every key to the index a run uses). The verdict is string equality against identifiers enumerated from
 the index by `scripts/n1_key_candidates.py`, so there is no physics to dispute. This is the
 tier no existing benchmark covers, and the one closest to what makes a heliophysics agent
 useful or useless.
@@ -14,7 +15,10 @@ the magnetotail lobe. Reference values computed by calling PlasmaPy. Boring on p
 the floor, and a floor has to be unarguable. It was 16 tasks until the reference run scored
 16/16 with `pass^3` at 100% on 1.0 tool calls per run: a tier that separates nothing is not
 evidence of quality, it is 512k tokens a sweep. What is left guards each wrapper against a
-regression, and the budget went to the tiers that discriminate.
+regression, and the budget went to the tiers that discriminate. Its tolerance is 1%: the
+truth is PlasmaPy on the prompt's own inputs, and the worst of the 68 stored passes sat
+0.224% from it, so the 5% it had until v0.3 would have accepted a value computed with the
+wrong constant.
 
 **n3 — method (12 tasks).** Real analysis of the 17 March 2015 interplanetary shock, with the
 averaging windows and the method stated in the prompt. Ground truth is derived from a frozen
@@ -56,6 +60,14 @@ returned. It separates the two defects a pass rate cannot: an identifier that wa
 retrieved, and one that was retrieved and passed over. A run whose search output was cut at
 the trace's limit before any accepted identifier appeared is counted apart, not as never
 retrieved: the agent saw what we did not keep.
+
+An n1 pass names an accepted identifier and invents none, and says nothing about what else
+the reply offered. Beside it the report counts the passes that also named a non-accepted
+product, the stricter score where the first identifier named must be accepted, and the
+identifiers quoted that no search in the run returned — the harness's own view of
+invention, which does not rest on the agent's report of it. These are reported, not gated:
+no stored trace has yet been read against a hedging rule, and a gate is only added after
+that reading (`dev/lessons.md`, 2026-09-11).
 
 ## When the benchmark is the thing that is wrong
 

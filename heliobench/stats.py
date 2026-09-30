@@ -133,15 +133,24 @@ def mcnemar(a: dict[str, bool], b: dict[str, bool]) -> dict:
     shared = sorted(set(a) & set(b))
     only_a = sum(1 for t in shared if a[t] and not b[t])
     only_b = sum(1 for t in shared if b[t] and not a[t])
-    n = only_a + only_b
+    # Two-sided exact binomial at p=0.5 over the discordant pairs.
+    p = sign_test(only_a, only_b)
+    return {"n_shared": len(shared), "only_a": only_a, "only_b": only_b, "p_value": p}
+
+
+def sign_test(a: int, b: int) -> float:
+    """Exact two-sided sign test: `a` pairs went one way, `b` the other, ties excluded.
+
+    The same binomial as `mcnemar`, which is a sign test on the discordant pairs; kept as
+    its own name for paired *measurements* (tokens, tool calls), where there is no
+    pass/fail table for the name to describe.
+    """
+    n = a + b
     if n == 0:
-        p = 1.0
-    else:
-        k = min(only_a, only_b)
-        # Two-sided exact binomial at p=0.5 over the discordant pairs.
-        coeff = np.array([_binom(n, i) for i in range(k + 1)], dtype=float)
-        p = float(min(1.0, 2.0 * coeff.sum() / (2.0**n)))
-    return {"n_shared": len(shared), "only_a": only_a, "only_b": only_b, "p_value": round(p, 6)}
+        return 1.0
+    k = min(a, b)
+    coeff = np.array([_binom(n, i) for i in range(k + 1)], dtype=float)
+    return round(float(min(1.0, 2.0 * coeff.sum() / (2.0**n))), 6)
 
 
 def _binom(n: int, k: int) -> float:

@@ -64,6 +64,11 @@ def test_a_run_produces_a_trace_without_touching_a_provider(tmp_path, monkeypatc
     assert trace.wall_s > 0
     assert trace.tokens.prompt == 7 and trace.tokens.exact
     assert trace.env["provider"] == "ollama"
+    from helioai.workspace import user_home
+
+    assert not (user_home("heliobench") / "workspace" / "bench_n2_beta").exists(), (
+        "a finished run's workspace is removed; n3 seeds ~37 MB into each"
+    )
 
 
 def test_seeding_makes_the_agent_reuse_our_directory(tmp_path):
@@ -254,5 +259,50 @@ def test_the_recorder_keeps_what_a_tool_returned_and_puts_the_registry_back():
     assert registry.call_tool == original and "call_tool" not in vars(registry)
     (ev,) = [e for e in trace.events if e["event"] == "tool_output"]
     assert ev["data"]["name"] == "no_such_tool"
-    assert ev["data"]["result"] == out and "unknown tool" in out
+    text = out if isinstance(out, str) else out.for_llm()
+    assert ev["data"]["result"] == text and "unknown tool" in text
     assert ev["data"]["truncated"] is False
+
+
+def test_behaviour_is_pinned_to_the_defaults_and_moved_only_by_agent_env(tmp_path, monkeypatch):
+    # An experiment switched on in the shell used to reach the agent and appear nowhere.
+    monkeypatch.setenv("HELIOAI_EXPERIMENTS", "deferred_tools")
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    agent._pin_env()
+    import os
+
+    assert os.environ["HELIOAI_EXPERIMENTS"] == ""
+    agent = HelioAIAgent(
+        tmp_path / "data", provider="ollama", agent_env={"HELIOAI_EXPERIMENTS": "search_budget"}
+    )
+    agent._pin_env()
+    assert os.environ["HELIOAI_EXPERIMENTS"] == "search_budget"
+
+
+def test_the_header_names_the_behaviour_helioai_parsed(tmp_path):
+    env = HelioAIAgent(tmp_path / "data", provider="ollama").describe()
+    assert env["agent_env"] == {}
+    assert "HELIOAI_EXPERIMENTS" in env["helioai_env"]
+    if hasattr(helioai, "__version__") and helioai.__version__ >= "0.4":
+        assert env["experiments"] == [] and env["role_models"] == {}
+        assert env["judgment"]["backend"] == "null"
+
+
+def test_a_client_that_cannot_be_built_is_a_preflight_problem(tmp_path, monkeypatch):
+    # 154 stored runs died on `OPENCODE_API_KEY is not set` or a provider 400, one call in.
+    def refuse(provider=None, model=None):
+        raise RuntimeError("OPENCODE_API_KEY is not set in .env")
+
+    monkeypatch.setattr("helioai.core.llm.factory.build_llm_client", refuse)
+    agent = HelioAIAgent(tmp_path / "data", provider="opencode")
+    problems = agent.preflight()
+    assert any("lead client (opencode) cannot be built" in p for p in problems)
+
+
+def test_the_canary_reports_what_the_request_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "helioai.core.llm.factory.build_llm_client",
+        lambda provider=None, model=None: _FakeLLM("ok"),
+    )
+    agent = HelioAIAgent(tmp_path / "data", provider="ollama")
+    assert asyncio.run(agent.canary()) == "ok (7 prompt + 3 completion tokens)"

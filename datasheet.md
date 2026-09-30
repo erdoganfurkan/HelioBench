@@ -32,7 +32,8 @@ NASA/CDAWeb spacecraft data (CC0) frozen under `fixtures/`.
 
 ## 3. Collection process
 
-n1 answer keys are enumerated out of the 82 433-product speasy index by
+n1 answer keys are enumerated out of the speasy index (82 433 products when first
+enumerated, 82 266 on 2026-09-28) by
 `scripts/n1_key_candidates.py`, a regex sweep over every entry rather than a top-k search:
 the key has to hold *every* product that answers the prompt, not merely one that exists. Three
 keys predating that script rejected defensible answers and were corrected on 2026-08-21. n2

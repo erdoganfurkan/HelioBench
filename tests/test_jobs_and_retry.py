@@ -172,3 +172,125 @@ def test_backoff_layers_over_the_token_meter_and_counts_only_what_returned():
     attach_backoff(client, Trace(task_id="t", prompt="p", agent="a"), t0=0.0, sleep=no_sleep)
     asyncio.run(client._client.chat.completions.create(model="m"))
     assert meter.usage.prompt == 10 and meter.usage.calls == 1 and meter.usage.exact
+
+
+# The SDK's class name, which is what `is_retriable` reads, with the SDK's status attribute.
+_Status429 = type("RateLimitError", (Exception,), {"status_code": 429})
+
+
+class APIConnectionError(Exception):
+    pass
+
+
+def _client_of(create):
+    completions = types.SimpleNamespace(create=create)
+    return types.SimpleNamespace(
+        _client=types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+    )
+
+
+def test_a_status_bearing_error_is_left_to_the_agent_and_still_recorded():
+    # HelioAI retries 408/429/5xx around this method; retrying here too multiplied them.
+    create, state = _flaky(99, exc=_Status429)
+    client = _client_of(create)
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    attach_backoff(client, trace, t0=0.0, defer_status=True)
+    with pytest.raises(_Status429):
+        asyncio.run(client._client.chat.completions.create(model="m"))
+    assert state["calls"] == 1
+    (ev,) = trace.events_named("retry")
+    assert ev["data"]["by"] == "agent" and ev["data"]["error"] == "RateLimitError"
+
+
+def test_a_connection_error_is_still_retried_when_the_agent_retries_only_statuses():
+    # HelioAI's clients have max_retries=0 and call_with_retry skips status-less errors:
+    # deferring these too left a dropped connection retried by nobody.
+    create, state = _flaky(2, exc=APIConnectionError)
+    client = _client_of(create)
+    trace = Trace(task_id="t", prompt="p", agent="a")
+
+    async def no_sleep(s):
+        pass
+
+    attach_backoff(client, trace, t0=0.0, defer_status=True, sleep=no_sleep)
+    assert asyncio.run(client._client.chat.completions.create(model="m")).ok
+    assert state["calls"] == 3
+    assert [e["data"]["by"] for e in trace.events_named("retry")] == ["harness", "harness"]
+
+
+def test_deferral_does_not_record_the_agents_own_faults():
+    create, _ = _flaky(1, exc=BadRequestError)
+    client = _client_of(create)
+    trace = Trace(task_id="t", prompt="p", agent="a")
+    attach_backoff(client, trace, t0=0.0, defer_status=True)
+    with pytest.raises(BadRequestError):
+        asyncio.run(client._client.chat.completions.create(model="m"))
+    assert trace.events_named("retry") == []
+
+
+# --- interruption and resume -------------------------------------------------------------
+
+
+class _DiesAfter(NullAgent):
+    """Runs `n` repetitions, then the sweep is interrupted."""
+
+    def __init__(self, n):
+        super().__init__()
+        self.n = n
+        self.calls = 0
+
+    async def run(self, prompt, workdir, task_id="", **kw):
+        self.calls += 1
+        if self.calls > self.n:
+            raise KeyboardInterrupt
+        return await super().run(prompt, workdir, task_id=task_id, **kw)
+
+
+def test_an_interrupted_sweep_leaves_a_readable_run_and_resumes(tmp_path):
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(_DiesAfter(3), tasks, out, runs=1, scratch=tmp_path / "s")
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["status"] == "interrupted"
+    assert len(json.loads((out / "results.json").read_text())) == 3
+    assert len((out / "results.partial.jsonl").read_text().splitlines()) == 3
+
+    again = _DiesAfter(99)
+    res = run(again, tasks, out, runs=1, scratch=tmp_path / "s", resume=True)
+    assert again.calls == len(tasks) - 3, "finished repetitions are not run again"
+    assert res["meta"]["status"] == "complete" and res["meta"]["resumed"] == 3
+    assert len(res["records"]) == len(tasks)
+    assert not (out / "results.partial.jsonl").exists()
+
+
+def test_resume_refuses_another_task_selection(tmp_path, capsys):
+    from heliobench.cli import main
+
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(_DiesAfter(1), tasks, out, runs=1, scratch=tmp_path / "s")
+    assert main(["run", "--tier", "n3", "--resume", str(out)]) == 1
+    assert "task selection differs" in capsys.readouterr().err
+    assert main(["run", "--tier", "n2", "--resume", str(out)]) == 0
+
+
+def test_resume_refuses_an_arm_whose_behaviour_changed(tmp_path):
+    from heliobench.cli import _resumable
+
+    class Configured(_DiesAfter):
+        def __init__(self, n, experiments):
+            super().__init__(n)
+            self.experiments = experiments
+
+        def describe(self):
+            return {**super().describe(), "experiments": self.experiments}
+
+    tasks = load_tasks("tasks", tiers=["n2"])
+    out = tmp_path / "r"
+    with pytest.raises(KeyboardInterrupt):
+        run(Configured(1, ["final_answer"]), tasks, out, runs=1, scratch=tmp_path / "s")
+    with pytest.raises(ValueError, match="experiments"):
+        _resumable(out, tasks, Configured(9, []))
+    assert _resumable(out, tasks, Configured(9, ["final_answer"])) == 1

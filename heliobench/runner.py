@@ -35,6 +35,7 @@ def make_record(task: Task, trace: Trace, run: int) -> dict:
         "task_id": task.id,
         "tier": task.tier,
         "event": task.event,
+        **({"quality": task.quality} if task.quality else {}),
         "run": run,
         "passed": result.passed,
         "outcome": classify(trace, result.passed),
@@ -42,6 +43,13 @@ def make_record(task: Task, trace: Trace, run: int) -> dict:
         "detail": result.detail,
         "metrics": collect(trace).as_dict(),
     }
+
+
+def _task_bytes(t: Task) -> bytes:
+    return json.dumps(
+        {"id": t.id, "prompt": t.prompt, "expected": t.expected, "tolerance": t.tolerance},
+        sort_keys=True,
+    ).encode()
 
 
 def task_set_digest(tasks: list[Task]) -> str:
@@ -52,19 +60,54 @@ def task_set_digest(tasks: list[Task]) -> str:
     """
     h = hashlib.sha256()
     for t in sorted(tasks, key=lambda t: t.id):
-        h.update(
-            json.dumps(
-                {"id": t.id, "prompt": t.prompt, "expected": t.expected, "tolerance": t.tolerance},
-                sort_keys=True,
-            ).encode()
-        )
+        h.update(_task_bytes(t))
     return h.hexdigest()[:16]
 
 
+def task_digests(tasks: list[Task]) -> dict[str, str]:
+    """The same fingerprint, one per task.
+
+    The set digest says whether two runs asked the same questions; these say which ones
+    they share. That is what lets two runs be compared on a tier, or on the tasks they have
+    in common, without the comparison trusting that a task id still means the same question.
+    """
+    return {t.id: hashlib.sha256(_task_bytes(t)).hexdigest()[:16] for t in tasks}
+
+
+def fixture_digests(tasks: list[Task], fixtures: Path) -> dict[str, str]:
+    """A fingerprint of the frozen data each fixture the tasks use served to the agent.
+
+    Not part of `task_set_digest`: re-freezing a fixture that yields the same keys must not
+    orphan every stored run. It is recorded so that a fixture that did change is visible.
+    """
+    out: dict[str, str] = {}
+    for name in sorted({t.fixture for t in tasks if t.fixture}):
+        root = Path(fixtures) / name
+        h = hashlib.sha256()
+        for f in sorted(p for p in root.rglob("*") if p.is_file()):
+            h.update(str(f.relative_to(root)).encode())
+            h.update(f.read_bytes())
+        out[name] = h.hexdigest()[:16] if root.is_dir() else "missing"
+    return out
+
+
 def new_run_dir(root: Path, agent_name: str) -> Path:
+    """A fresh directory for one sweep, never one another sweep already wrote into.
+
+    Stamped to the second; two sweeps started in the same second (a script, CI) used to
+    share a directory and interleave their traces. The second gets a `-2` suffix.
+    """
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    d = Path(root) / f"{stamp}_{agent_name}"
-    (d / "traces").mkdir(parents=True, exist_ok=True)
+    base = Path(root) / f"{stamp}_{agent_name}"
+    d, n = base, 1
+    while True:
+        try:
+            d.mkdir(parents=True)
+            break
+        except FileExistsError:
+            n += 1
+            d = base.with_name(f"{base.name}-{n}")
+    (d / "traces").mkdir()
     return d
 
 
@@ -94,24 +137,54 @@ async def _one(agent, task: Task, i: int, scratch: Path, fixtures: Path, out_dir
     return make_record(task, trace, i)
 
 
-async def _sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event) -> list[dict]:
+async def _sweep(
+    agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event, done=None, sink=None
+) -> list[dict]:
     """Every repetition of every task, at most `jobs` in flight, in a deterministic order.
 
     The order of *completion* depends on the machine; the order of *records* must not. Rows
     are sorted by `(task_id, run)` before they are returned, so two sweeps with different
     `jobs` write the same `results.json` apart from the timing fields.
+
+    `done` maps `(task_id, run)` to a record already on disk, which is returned instead of
+    running again; `sink` receives each new record the moment it lands.
     """
     gate = asyncio.Semaphore(jobs)
+    done = done or {}
 
     async def guarded(task, i):
         async with gate:
             record = await _one(agent, task, i, scratch, fixtures, out_dir)
+        if sink is not None:
+            sink(record)
         if on_event:
             on_event(record)
         return record
 
-    records = await asyncio.gather(*(guarded(t, i) for t in tasks for i in range(runs)))
+    pending = [(t, i) for t in tasks for i in range(runs) if (t.id, i) not in done]
+    records = list(done.values())
+    records += await asyncio.gather(*(guarded(t, i) for t, i in pending))
     return sorted(records, key=lambda r: (r["task_id"], r["run"]))
+
+
+def _finished(out_dir: Path, tasks: list[Task], runs: int) -> dict[tuple[str, int], dict]:
+    """Records rebuilt from the traces a previous, interrupted sweep already wrote.
+
+    Regraded from the trace rather than read from `results.partial.jsonl`, so a resumed run
+    is graded by one version of the graders throughout. A trace whose prompt is not the
+    task's prompt today is not reused: it answered another question.
+    """
+    by_id = {t.id: t for t in tasks}
+    out: dict[tuple[str, int], dict] = {}
+    for path in sorted((out_dir / "traces").glob("*.json")):
+        tid, _, i = path.stem.rpartition(".")
+        task = by_id.get(tid)
+        if task is None or not i.isdigit() or int(i) >= runs:
+            continue
+        trace = Trace.read(path)
+        if trace.prompt == task.prompt:
+            out[(tid, int(i))] = make_record(task, trace, int(i))
+    return out
 
 
 def run(
@@ -124,6 +197,7 @@ def run(
     scratch: Path | None = None,
     on_event=None,
     jobs: int = 1,
+    resume: bool = False,
 ) -> dict:
     """Execute every task `runs` times, grade each, and write the run directory.
 
@@ -133,6 +207,13 @@ def run(
     `jobs` bounds how many repetitions are in flight at once. It defaults to one because
     concurrency destroys the per-run wall clock as a diagnostic and multiplies every transport
     failure — which is why failure accounting shipped before this did.
+
+    `meta.json` is written before the first run, with `status: running`, and every record is
+    appended to `results.partial.jsonl` as it lands; a sweep that is interrupted still leaves
+    a run directory `report --regrade` can read, and `status: interrupted` says so. With
+    `resume`, the repetitions whose trace is already in `out_dir` are regraded rather than
+    run again. The 2026-08-21 sweep died at run 69 of 90 with the quota spent; recovering it
+    took a day of hand-tallying.
     """
     if jobs < 1:
         raise ValueError(f"jobs must be at least 1, got {jobs}")
@@ -141,22 +222,49 @@ def run(
     scratch = Path(scratch or out_dir / "scratch")
     started = time.time()
 
-    records = asyncio.run(_sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event))
-
+    done = _finished(out_dir, tasks, runs) if resume else {}
     meta = {
         "heliobench": __version__,
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
-        "elapsed_s": round(time.time() - started, 1),
+        "status": "running",
         "runs": runs,
         "jobs": jobs,
         "n_tasks": len(tasks),
         "task_set_digest": task_set_digest(tasks),
+        "task_digests": task_digests(tasks),
+        "fixture_digests": fixture_digests(tasks, fixtures),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "agent": agent.describe(),
     }
-    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    (out_dir / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    if resume:
+        meta["resumed"] = len(done)
+    meta_path = out_dir / "meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    partial = out_dir / "results.partial.jsonl"
+    landed: list[dict] = list(done.values())
+
+    def sink(record: dict) -> None:
+        landed.append(record)
+        with partial.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+
+    def finish(records: list[dict], status: str) -> None:
+        meta["status"] = status
+        meta["elapsed_s"] = round(time.time() - started, 1)
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        records = sorted(records, key=lambda r: (r["task_id"], r["run"]))
+        (out_dir / "results.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+
+    try:
+        records = asyncio.run(
+            _sweep(agent, tasks, runs, scratch, fixtures, out_dir, jobs, on_event, done, sink)
+        )
+    except BaseException:
+        finish(landed, "interrupted")
+        raise
+    finish(records, "complete")
+    partial.unlink(missing_ok=True)
     return {"meta": meta, "records": records}
 
 
@@ -172,11 +280,19 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
     Traces for tasks no longer in the set are skipped, and the rebuilt meta says how many
     were kept: a re-grade against a different task set is a different measurement, and the
     digest it writes is what says so.
+
+    A trace whose prompt is not the task's prompt today is left unscored, and listed in
+    `unscored_traces`. The agent answered a different question, so grading its reply against
+    today's key repeats the mistake a hardened prompt was meant to fix, in the other
+    direction — and until 2026-09-28 it did exactly that, then stamped the run with today's
+    digest so that `compare` would have accepted it. Widening a key keeps the prompt and
+    carries a trace over; rewording it does not.
     """
     run_dir = Path(run_dir)
     by_id = {t.id: t for t in tasks}
     records: list[dict] = []
     skipped: list[str] = []
+    unscored: list[dict] = []
 
     for path in sorted((run_dir / "traces").glob("*.json")):
         trace = Trace.read(path)
@@ -184,7 +300,13 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
         if task is None:
             skipped.append(trace.task_id)
             continue
-        records.append(make_record(task, trace, int(path.stem.rsplit(".", 1)[-1])))
+        i = int(path.stem.rsplit(".", 1)[-1])
+        if trace.prompt != task.prompt:
+            unscored.append(
+                {"task_id": task.id, "run": i, "reason": "the prompt changed since this run"}
+            )
+            continue
+        records.append(make_record(task, trace, i))
 
     seen = {r["task_id"] for r in records}
     meta_path = run_dir / "meta.json"
@@ -197,7 +319,9 @@ def regrade(run_dir: Path, tasks: list[Task]) -> dict:
             "runs": max((r["run"] for r in records), default=0) + 1,
             "n_tasks": len(seen),
             "task_set_digest": task_set_digest([by_id[t] for t in sorted(seen)]),
+            "task_digests": task_digests([by_id[t] for t in sorted(seen)]),
             "skipped_traces": sorted(set(skipped)),
+            "unscored_traces": unscored,
         }
     )
     meta.setdefault("agent", first.env if first else {})
